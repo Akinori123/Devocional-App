@@ -1,0 +1,63 @@
+{
+  "collections": [
+    {
+      "name": "users",
+      "documentId": "uid",
+      "fields": [
+        { "name": "displayName", "type": "string" },
+        { "name": "email", "type": "string" },
+        { "name": "subscriptionStatus", "type": "string" },
+        { "name": "stripeCustomerId", "type": "string" },
+        { "name": "createdAt", "type": "timestamp" }
+      ],
+      "description": "User profiles and billing identifiers."
+    },
+    {
+      "name": "devotionals",
+      "documentId": "devotionalId",
+      "fields": [
+        { "name": "title", "type": "string" },
+        { "name": "description", "type": "string" },
+        { "name": "totalDays", "type": "number" },
+        { "name": "coverImageUrl", "type": "string" },
+        { "name": "isPremium", "type": "boolean" }
+      ],
+      "description": "Devotional plans and reading guides."
+    },
+    {
+      "name": "user_progress",
+      "documentId": "progressId",
+      "fields": [
+        { "name": "userId", "type": "reference", "targetCollection": "users" },
+        { "name": "devotionalId", "type": "reference", "targetCollection": "devotionals" },
+        { "name": "currentDay", "type": "number" },
+        { "name": "completedDays", "type": "array" },
+        { "name": "lastReadAt", "type": "timestamp" }
+      ],
+      "description": "Tracks a user's progress through a specific devotional plan."
+    },
+    {
+      "name": "notes",
+      "documentId": "noteId",
+      "fields": [
+        { "name": "userId", "type": "reference", "targetCollection": "users" },
+        { "name": "verseReference", "type": "string" },
+        { "name": "content", "type": "string" },
+        { "name": "createdAt", "type": "timestamp" }
+      ],
+      "description": "User's personal notes and reflections."
+    },
+    {
+      "name": "subscriptions",
+      "documentId": "subscriptionId",
+      "fields": [
+        { "name": "userId", "type": "reference", "targetCollection": "users" },
+        { "name": "planId", "type": "string" },
+        { "name": "status", "type": "string" },
+        { "name": "currentPeriodEnd", "type": "timestamp" },
+        { "name": "webhookLastEvent", "type": "string" }
+      ],
+      "description": "Webhook destination for Stripe/payment provider subscription updates."
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@theme {
+  --color-yellow-50: #fcf8f8;
+  --color-yellow-100: #f7edee;
+  --color-yellow-200: #efdadc;
+  --color-yellow-300: #e2bdc2;
+  --color-yellow-400: #d199a0;
+  --color-yellow-500: #bd757f;
+  --color-yellow-600: #a35661;
+  --color-yellow-700: #88434d;
+  --color-yellow-800: #713841;
+  --color-yellow-900: #603239;
+  --color-yellow-950: #34181d;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-yellow-300);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-yellow-400);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--color-yellow-700);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: var(--color-yellow-600);
+}
+
+
+
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar {
+    height: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-yellow-400);
+    border-radius: 4px;
+  }
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-yellow-600);
+  }
+}
