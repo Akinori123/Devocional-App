@@ -7,6 +7,7 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 import { MercadoPagoConfig, Preference, PreApproval } from 'mercadopago';
+import dailyPushHandler from './cron/daily-push';
 
 dotenv.config();
 
@@ -600,63 +601,6 @@ app.post("/api/gemini/generate-image", async (req, res) => {
   }
 });
 
-app.get("/api/cron/daily-push", async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    const cronSecret = process.env.CRON_SECRET;
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-    const firestore = getFirestore();
-    let wordOfTheDay = "Um novo dia, uma nova oportunidade para buscar a Deus.";
-    const dailyRef = await firestore.collection("settings").doc("daily_content").get();
-    if (dailyRef.exists) {
-      const dailyData = dailyRef.data();
-      if (dailyData?.verseText) {
-        wordOfTheDay = dailyData.verseText;
-      }
-    }
-    const usersSnapshot = await firestore.collection("users").get();
-    const tokens: string[] = [];
-    usersSnapshot.forEach(doc => {
-      const data = doc.data();
-      if (data.fcmTokens && Array.isArray(data.fcmTokens)) {
-        tokens.push(...data.fcmTokens);
-      }
-    });
-    const uniqueTokens = Array.from(new Set(tokens.filter(t => typeof t === 'string' && t.trim().length > 0)));
-    if (uniqueTokens.length === 0) {
-      return res.status(200).json({ message: "No valid FCM tokens found." });
-    }
-    const message = {
-      notification: {
-        title: "Bom dia! ☀️",
-        body: `"${wordOfTheDay}"... Volte ao app para continuar sua leitura na Bíblia ou na sua Jornada. Não desista do seu propósito!`,
-      },
-      webpush: {
-        fcmOptions: { link: "/" }
-      }
-    };
-    const messaging = getMessaging();
-    const chunkedTokens = [];
-    for (let i = 0; i < uniqueTokens.length; i += 500) {
-      chunkedTokens.push(uniqueTokens.slice(i, i + 500));
-    }
-    let successCount = 0;
-    let failureCount = 0;
-    for (const chunk of chunkedTokens) {
-      const response = await messaging.sendEachForMulticast({
-        tokens: chunk,
-        notification: message.notification,
-      });
-      successCount += response.successCount;
-      failureCount += response.failureCount;
-    }
-    res.status(200).json({ success: true, successCount, failureCount });
-  } catch (error: any) {
-    console.error("Error in daily-push cron:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+app.all("/api/cron/daily-push", dailyPushHandler);
 
 export default app;
