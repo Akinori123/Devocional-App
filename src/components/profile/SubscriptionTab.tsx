@@ -1,106 +1,114 @@
 import { useState } from 'react';
-import { ShieldCheck, Loader2, AlertTriangle, X, Crown, Image as ImageIcon, Headphones, Video, Calendar, CreditCard, CheckCircle2 } from 'lucide-react';
+import { 
+  ShieldCheck, 
+  Loader2, 
+  AlertTriangle, 
+  Crown, 
+  Image as ImageIcon, 
+  Headphones, 
+  Video, 
+  Calendar, 
+  CreditCard, 
+  CheckCircle2, 
+  QrCode, 
+  Clock, 
+  Sparkles,
+  ArrowRight,
+  Zap,
+  RefreshCw
+} from 'lucide-react';
+import { format, differenceInDays } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { PixPaymentModal, PixPaymentData } from '../subscription/PixPaymentModal';
 
 export function SubscriptionTab() {
   const toast = useToast();
   const { user, profile } = useAuth();
-  const [loading, setLoading] = useState(false);
+  
+  const [loadingCard, setLoadingCard] = useState(false);
+  const [loadingPix, setLoadingPix] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  
+  // PIX Modal State
+  const [pixModalOpen, setPixModalOpen] = useState(false);
+  const [pixData, setPixData] = useState<PixPaymentData | null>(null);
 
-  const isPremium = profile?.isPremium;
-  const isAdmin = profile?.isAdmin === true || user?.email === 'dofekrafael@gmail.com' || user?.email === 'sjhonatan916@gmail.com' || user?.email === 'floresceremadoracao@gmail.com';
+  const isPremium = profile?.isPremium === true;
+  const isAdmin = profile?.isAdmin === true || 
+    user?.email === 'dofekrafael@gmail.com' || 
+    user?.email === 'sjhonatan916@gmail.com' || 
+    user?.email === 'floresceremadoracao@gmail.com';
   
   const isCanceled = profile?.cancelAtPeriodEnd === true || profile?.subscriptionStatus === 'canceled';
-  
-  // Calculate an approximate expiration date if none is provided, or just show text
-  // Ideally, your backend would save currentPeriodEnd timestamp from MP. 
-  // For now we show a friendly text if date is unknown.
-  const expirationText = "o final do seu ciclo de faturamento";
+  const isPixPrepaid = profile?.subscriptionType === 'pix_prepaid';
+
+  // Format expiration date
+  const getFormattedExpiration = () => {
+    if (!profile?.subscriptionExpiresAt) return "o final do seu ciclo de faturamento";
+    try {
+      return format(new Date(profile.subscriptionExpiresAt), "dd 'de' MMMM 'de' yyyy", { locale: ptBR });
+    } catch {
+      return "o final do seu ciclo";
+    }
+  };
+
+  // Calculate remaining days for PIX
+  const getRemainingDays = () => {
+    if (!profile?.subscriptionExpiresAt) return null;
+    try {
+      const days = differenceInDays(new Date(profile.subscriptionExpiresAt), new Date());
+      return Math.max(0, days);
+    } catch {
+      return null;
+    }
+  };
+
+  const remainingDays = getRemainingDays();
 
   const vipBenefits = [
     { 
-      icon: <ImageIcon className="w-6 h-6 text-rose-300" />, 
-      title: 'Imagens de IA', 
-      desc: 'Gere fotos exclusivas e personalizadas para suas reflexões.' 
+      icon: <ImageIcon className="w-5 h-5 text-yellow-300" />, 
+      title: 'Gerador de Imagens com IA', 
+      desc: 'Crie artes e reflexões visuais personalizadas para meditar e compartilhar.' 
     },
     { 
-      icon: <Headphones className="w-6 h-6 text-rose-300" />, 
-      title: 'Áudios da Bíblia', 
-      desc: 'Ouça capítulos narrados automaticamente onde estiver.' 
+      icon: <Headphones className="w-5 h-5 text-yellow-300" />, 
+      title: 'Áudios Bíblicos & Devocionais', 
+      desc: 'Ouça capítulos e reflexões guiadas com narração onde você estiver.' 
     },
     { 
-      icon: <Video className="w-6 h-6 text-rose-300" />, 
-      title: 'Vídeos Restritos', 
-      desc: 'Acesso a mensagens e devocionais em vídeo exclusivos.' 
+      icon: <Video className="w-5 h-5 text-yellow-300" />, 
+      title: 'Vídeos & Conteúdos Restritos', 
+      desc: 'Acesso total a mensagens pastorais e devocionais exclusivos.' 
+    },
+    { 
+      icon: <Crown className="w-5 h-5 text-yellow-300" />, 
+      title: 'Teólogo Particular com IA', 
+      desc: 'Tire dúvidas bíblicas, peça estudos e receba respostas aprofundadas.' 
     }
   ];
 
-  if (isAdmin) {
-    return (
-      <div className="p-5">
-        <div className="bg-gradient-to-br from-purple-950 via-purple-900 to-purple-950 rounded-[2rem] p-8 text-white shadow-2xl relative overflow-hidden border border-purple-800/50 shadow-purple-900/20">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-5 rounded-full -mr-20 -mt-20 blur-3xl"></div>
-          <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-400 opacity-20 rounded-full -ml-16 -mb-16 blur-2xl"></div>
-          
-          <div className="relative z-10 text-center">
-            <div className="flex flex-col items-center gap-3 mb-6">
-              <div className="bg-gradient-to-br from-purple-400/20 to-purple-600/20 p-5 rounded-3xl border border-purple-400/30 shadow-inner backdrop-blur-md mb-2">
-                <ShieldCheck className="w-10 h-10 text-purple-200" />
-              </div>
-              <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-purple-500/20 to-indigo-500/20 text-purple-200 text-xs font-bold uppercase tracking-widest px-4 py-1.5 rounded-full border border-purple-400/30 shadow-inner backdrop-blur-md">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Nível Administrador</span>
-              </div>
-              <h3 className="text-3xl font-bold font-serif text-white tracking-wide mt-2">Acesso Total</h3>
-            </div>
-            
-            <div className="bg-purple-900/30 rounded-2xl p-6 mb-6 border border-purple-700/30 backdrop-blur-md shadow-inner text-left">
-              <div className="flex items-start gap-4">
-                <Crown className="w-6 h-6 text-purple-300 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-base text-white font-semibold">Conta Administrativa Blindada</p>
-                  <p className="text-sm text-purple-200/80 mt-1.5 leading-relaxed">
-                    Você possui todos os benefícios Premium VIP liberados permanentemente. Imagens de IA, Áudios, Vídeos e gerenciamento de plataforma.
-                  </p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="space-y-3 mb-2 text-left">
-              {vipBenefits.map((benefit, i) => (
-                <div key={i} className="flex gap-4 items-center bg-white/5 p-4 rounded-2xl border border-white/10 hover:bg-white/10 transition-colors backdrop-blur-sm">
-                  <div className="bg-purple-800/40 p-2.5 rounded-xl border border-purple-700/30 shadow-inner text-purple-300">
-                    {benefit.icon}
-                  </div>
-                  <div>
-                    <p className="font-bold text-sm text-white">{benefit.title}</p>
-                    <p className="text-xs text-purple-200/80 mt-0.5 leading-relaxed">{benefit.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const handleSubscribe = async () => {
+  // 1. Assinatura no Cartão
+  const handleSubscribeCard = async () => {
     if (!user) {
       toast.error("Você precisa estar logado para assinar.");
       return;
     }
-    setLoading(true);
+    setLoadingCard(true);
     try {
       const response = await fetch('/api/checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ userId: user.uid, userEmail: user.email })
+        body: JSON.stringify({ 
+          userId: user.uid, 
+          userEmail: user.email,
+          userName: profile?.name || user.displayName
+        })
       });
       if (!response.ok) {
         throw new Error('Falha ao gerar link de pagamento');
@@ -113,12 +121,49 @@ export function SubscriptionTab() {
       }
     } catch (error) {
       console.error(error);
-      toast.error("Houve um erro ao processar sua assinatura. Tente novamente mais tarde.");
+      toast.error("Houve um erro ao processar sua assinatura no cartão. Tente novamente.");
     } finally {
-      setLoading(false);
+      setLoadingCard(false);
     }
   };
 
+  // 2. Passe de 30 Dias no PIX
+  const handleGeneratePix = async () => {
+    if (!user) {
+      toast.error("Você precisa estar logado para gerar o PIX.");
+      return;
+    }
+    setLoadingPix(true);
+    setPixModalOpen(true);
+    setPixData(null);
+    try {
+      const response = await fetch('/api/create-pix', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+          userId: user.uid, 
+          userEmail: user.email,
+          userName: profile?.name || user.displayName,
+          amount: 1.00
+        })
+      });
+      if (!response.ok) {
+        throw new Error('Falha ao gerar PIX');
+      }
+      const data = await response.json();
+      setPixData(data);
+    } catch (error) {
+      console.error(error);
+      toast.error("Houve um erro ao gerar o código PIX. Tente novamente.");
+      setPixModalOpen(false);
+    } finally {
+      setLoadingPix(false);
+    }
+  };
+
+  // 3. Cancelar Assinatura Recorrente no Cartão
   const handleCancelSubscription = async () => {
     if (!user) return;
     setCanceling(true);
@@ -133,169 +178,406 @@ export function SubscriptionTab() {
       if (!response.ok) {
         throw new Error('Falha ao cancelar assinatura');
       }
-      toast.success("Sua assinatura foi cancelada com sucesso. Você tem acesso até o fim do ciclo!");
+      toast.success("Sua renovação automática foi cancelada. Seu acesso VIP continua ativo até o final do ciclo!");
       setShowCancelModal(false);
-      // It will auto-refresh if they have a real-time listener on the profile in AuthContext
-      setTimeout(() => {
-         window.location.reload();
-      }, 1500);
     } catch (error) {
       console.error(error);
-      toast.error("Houve um erro ao cancelar sua assinatura. Pode ser que ela já esteja cancelada ou ocorra um erro de rede.");
+      toast.error("Houve um erro ao cancelar. Pode ser que ela já esteja cancelada.");
     } finally {
       setCanceling(false);
     }
   };
 
-  if (isPremium) {
+  // ================= ADMIN VIEW =================
+  if (isAdmin) {
     return (
-      <div className="p-5">
-        <div className="bg-gradient-to-br from-rose-950 via-rose-900 to-rose-950 rounded-[2rem] p-8 text-white shadow-2xl relative overflow-hidden border border-rose-800/50 shadow-rose-900/20">
-          {/* Background decorative elements */}
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-5 rounded-full -mr-20 -mt-20 blur-3xl"></div>
-          <div className="absolute bottom-0 left-0 w-48 h-48 bg-rose-400 opacity-20 rounded-full -ml-16 -mb-16 blur-2xl"></div>
-          
-          <div className="relative z-10">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-4">
-                <div className="bg-gradient-to-br from-rose-400/20 to-rose-600/20 p-3 rounded-2xl border border-rose-400/30 shadow-inner backdrop-blur-md">
-                  <Crown className="w-6 h-6 text-rose-200" />
-                </div>
-                <div>
-                  <h3 className="text-2xl font-bold font-serif text-white tracking-wide">Área VIP</h3>
-                  <p className="text-rose-200/90 text-sm font-medium tracking-wider uppercase mt-0.5">Florescer Premium</p>
-                </div>
+      <div className="p-4 sm:p-5 max-w-2xl mx-auto">
+        <div className="bg-gradient-to-br from-purple-950 via-slate-900 to-purple-950 rounded-3xl p-6 sm:p-8 text-white shadow-2xl relative overflow-hidden border border-purple-800/40">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="relative z-10 text-center">
+            <div className="flex flex-col items-center gap-2 mb-6">
+              <div className="bg-gradient-to-br from-purple-500/20 to-indigo-500/20 p-4 rounded-2xl border border-purple-400/30 backdrop-blur-md">
+                <ShieldCheck className="w-9 h-9 text-purple-300" />
               </div>
-              
-              <div className={`px-4 py-1.5 rounded-full border text-xs font-bold uppercase tracking-widest backdrop-blur-md shadow-sm ${isCanceled ? 'bg-orange-950/40 border-orange-500/30 text-orange-300' : 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'}`}>
-                {isCanceled ? 'Cancelado' : 'Ativo'}
+              <div className="inline-flex items-center gap-1.5 bg-purple-500/20 text-purple-200 text-xs font-bold uppercase tracking-widest px-3.5 py-1 rounded-full border border-purple-400/30">
+                <span>Nível Administrador</span>
               </div>
+              <h3 className="text-2xl font-bold text-white tracking-wide mt-1">Acesso Total Vitalício</h3>
             </div>
-
-            <div className="bg-rose-900/30 rounded-2xl p-5 mb-8 border border-rose-700/30 backdrop-blur-md shadow-inner">
+            
+            <div className="bg-purple-900/25 rounded-2xl p-4 mb-6 border border-purple-700/30 text-left">
               <div className="flex items-start gap-3">
-                <Calendar className="w-5 h-5 text-rose-300 shrink-0 mt-0.5" />
+                <Crown className="w-5 h-5 text-purple-300 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-base text-white font-semibold">Sua assinatura VIP está {isCanceled ? 'cancelada' : 'ativa'}</p>
-                  <p className="text-sm text-rose-200/80 mt-1.5 leading-relaxed">
-                    {isCanceled 
-                      ? `Você continuará com acesso VIP até ${expirationText}. Após essa data, sua conta voltará para o plano gratuito.`
-                      : `Sua assinatura é renovada automaticamente. Próxima cobrança no final do ciclo.`}
+                  <p className="text-sm text-white font-semibold">Conta Administrativa Blindada</p>
+                  <p className="text-xs text-purple-200/80 mt-1 leading-relaxed">
+                    Você possui todos os benefícios Premium VIP liberados permanentemente sem necessidade de pagamento.
                   </p>
                 </div>
               </div>
             </div>
-
-            <h4 className="text-xs font-bold text-rose-200/60 uppercase tracking-widest mb-5 ml-1">Benefícios Destravados</h4>
-            <div className="space-y-3 mb-6">
+            
+            <div className="space-y-2.5 text-left">
               {vipBenefits.map((benefit, i) => (
-                <div key={i} className="flex gap-4 items-center bg-white/5 p-4 rounded-2xl border border-white/10 hover:bg-white/10 transition-colors backdrop-blur-sm">
-                  <div className="bg-rose-800/40 p-2.5 rounded-xl border border-rose-700/30 shadow-inner text-rose-300">
+                <div key={i} className="flex gap-3.5 items-center bg-white/5 p-3.5 rounded-2xl border border-white/10">
+                  <div className="bg-purple-800/40 p-2 rounded-xl border border-purple-700/30 text-purple-300">
                     {benefit.icon}
                   </div>
                   <div>
-                    <p className="font-bold text-sm text-white">{benefit.title}</p>
-                    <p className="text-xs text-rose-200/80 mt-0.5 leading-relaxed">{benefit.desc}</p>
+                    <p className="font-bold text-xs text-white">{benefit.title}</p>
+                    <p className="text-[11px] text-purple-200/70">{benefit.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ================= ACTIVE PREMIUM VIEW =================
+  if (isPremium) {
+    return (
+      <div className="p-4 sm:p-5 max-w-2xl mx-auto">
+        <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-purple-950 rounded-3xl p-6 sm:p-8 text-white shadow-2xl relative overflow-hidden border border-yellow-500/30">
+          {/* Luzes decorativas */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-500/10 rounded-full blur-2xl pointer-events-none" />
+          
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3.5">
+                <div className="bg-gradient-to-tr from-yellow-500 to-amber-300 p-0.5 rounded-2xl shadow-lg shadow-yellow-500/20">
+                  <div className="bg-slate-950 p-2.5 rounded-[14px]">
+                    <Crown className="w-6 h-6 text-yellow-400" />
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white tracking-wide">Área VIP Florescer</h3>
+                  <p className="text-xs font-bold text-yellow-400/90 tracking-wider uppercase">
+                    {isPixPrepaid ? 'Passe de 30 Dias (PIX)' : 'Assinatura no Cartão'}
+                  </p>
+                </div>
+              </div>
+              
+              <div className={`px-3 py-1 rounded-full border text-[11px] font-bold uppercase tracking-widest backdrop-blur-md shadow-sm ${
+                isCanceled 
+                  ? 'bg-orange-950/60 border-orange-500/40 text-orange-300' 
+                  : isPixPrepaid 
+                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300' 
+                    : 'bg-yellow-950/60 border-yellow-500/40 text-yellow-300'
+              }`}>
+                {isCanceled ? 'Renovação Desativada' : isPixPrepaid ? 'Passe Ativo' : 'Assinatura Ativa'}
+              </div>
+            </div>
+
+            {/* Cartão de Status do Acesso */}
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 sm:p-5 mb-6 backdrop-blur-sm">
+              <div className="flex items-start gap-3">
+                {isPixPrepaid ? (
+                  <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-300 shrink-0 mt-0.5">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                ) : (
+                  <div className="p-2 rounded-xl bg-purple-500/20 text-purple-300 shrink-0 mt-0.5">
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                )}
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-white font-bold">
+                      {isPixPrepaid 
+                        ? 'Seu Passe de 30 Dias via PIX' 
+                        : isCanceled 
+                          ? 'Acesso válido até o término do ciclo' 
+                          : 'Assinatura Recorrente no Cartão'}
+                    </p>
+                    {isPixPrepaid && remainingDays !== null && (
+                      <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        {remainingDays} {remainingDays === 1 ? 'dia restante' : 'dias restantes'}
+                      </span>
+                    )}
+                  </div>
+                  
+                  <p className="text-xs text-gray-300 mt-1.5 leading-relaxed">
+                    {isPixPrepaid ? (
+                      <>
+                        Válido até <strong>{getFormattedExpiration()}</strong>. Este passe não possui cobranças automáticas e encerrará sozinho ao término do prazo.
+                      </>
+                    ) : isCanceled ? (
+                      <>
+                        Você continuará com acesso VIP completo até <strong>{getFormattedExpiration()}</strong>. Nenhuma nova cobrança será realizada.
+                      </>
+                    ) : (
+                      <>
+                        Sua assinatura é renovada automaticamente todo mês no cartão. Você pode desativar a qualquer momento abaixo.
+                      </>
+                    )}
+                  </p>
+
+                  {/* Ação rápida para quem está no PIX (adicionar +30 dias) */}
+                  {isPixPrepaid && (
+                    <button
+                      id="btn-renew-pix-30days"
+                      onClick={handleGeneratePix}
+                      disabled={loadingPix}
+                      className="mt-3.5 w-full py-2.5 px-4 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 active:scale-98"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Renovar ou Adicionar +30 Dias via PIX</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 ml-1">
+              Seus Benefícios VIP Desbloqueados
+            </h4>
+            <div className="space-y-2.5 mb-6">
+              {vipBenefits.map((benefit, i) => (
+                <div key={i} className="flex gap-3.5 items-center bg-white/5 p-3.5 rounded-2xl border border-white/10">
+                  <div className="bg-yellow-500/20 p-2 rounded-xl text-yellow-400">
+                    {benefit.icon}
+                  </div>
+                  <div>
+                    <p className="font-bold text-xs text-white">{benefit.title}</p>
+                    <p className="text-[11px] text-gray-300 mt-0.5 leading-relaxed">{benefit.desc}</p>
                   </div>
                 </div>
               ))}
             </div>
 
-            {!isCanceled && (
+            {/* Botão de Cancelar Assinatura (Apenas para quem paga via Cartão e está ativo) */}
+            {!isPixPrepaid && !isCanceled && (
               <button 
+                id="btn-open-cancel-subscription"
                 onClick={() => setShowCancelModal(true)}
-                className="w-full bg-rose-950/40 text-rose-300 py-4 rounded-2xl font-bold shadow-sm hover:bg-rose-900/60 hover:text-rose-200 active:scale-95 transition-all flex justify-center items-center gap-2 border border-rose-800/50 backdrop-blur-md mt-4 hover:border-rose-700/50"
+                className="w-full bg-white/5 text-rose-300 hover:bg-rose-950/40 hover:text-rose-200 py-3.5 rounded-2xl text-xs font-bold transition-all flex justify-center items-center gap-2 border border-white/10 hover:border-rose-800/40 active:scale-98"
               >
-                Cancelar Assinatura
+                <span>Desativar Renovação Automática do Cartão</span>
               </button>
             )}
           </div>
         </div>
 
+        {/* Modal de Cancelamento */}
         {showCancelModal && (
-          <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-              <div className="p-5 text-center flex flex-col items-center">
-                <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mb-4 shadow-inner">
-                  <AlertTriangle className="w-8 h-8" />
-                </div>
-                <h3 className="font-bold text-gray-900 dark:text-white text-xl mb-2">Desativar Renovação?</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 leading-relaxed">
-                  Tem certeza que deseja cancelar? Você manterá seus benefícios VIP até o fim do ciclo atual, mas não haverá novas cobranças.
-                </p>
-                <div className="flex flex-col gap-3 w-full">
-                  <button
-                    onClick={handleCancelSubscription}
-                    disabled={canceling}
-                    className="w-full bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm"
-                  >
-                    {canceling ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      "Sim, quero cancelar"
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setShowCancelModal(false)}
-                    disabled={canceling}
-                    className="w-full bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 disabled:opacity-50 text-gray-900 dark:text-white font-bold py-3.5 px-4 rounded-xl transition-colors"
-                  >
-                    Não, manter assinatura
-                  </button>
-                </div>
+          <div 
+            id="cancel-modal-overlay"
+            className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200"
+          >
+            <div 
+              id="cancel-modal-card"
+              className="bg-slate-900 border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl p-6 text-center text-white animate-in zoom-in-95 duration-200"
+            >
+              <div className="w-14 h-14 bg-rose-500/20 border border-rose-500/30 text-rose-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-7 h-7" />
+              </div>
+              <h3 className="font-bold text-white text-lg mb-2">Desativar Renovação Automática?</h3>
+              <p className="text-xs text-gray-300 mb-6 leading-relaxed">
+                Você não será cobrado no próximo ciclo e <strong>manterá seu acesso VIP até o final do período já pago</strong> ({getFormattedExpiration()}).
+              </p>
+              <div className="flex flex-col gap-2.5 w-full">
+                <button
+                  id="btn-confirm-cancel-subscription"
+                  onClick={handleCancelSubscription}
+                  disabled={canceling}
+                  className="w-full bg-rose-600 hover:bg-rose-700 disabled:bg-rose-800 text-white font-bold text-xs py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm"
+                >
+                  {canceling ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    "Sim, desativar renovação"
+                  )}
+                </button>
+                <button
+                  id="btn-abort-cancel-subscription"
+                  onClick={() => setShowCancelModal(false)}
+                  disabled={canceling}
+                  className="w-full bg-white/10 hover:bg-white/15 text-white font-semibold text-xs py-3 px-4 rounded-xl transition-colors"
+                >
+                  Continuar com Assinatura Ativa
+                </button>
               </div>
             </div>
           </div>
         )}
+
+        {/* PIX Modal */}
+        <PixPaymentModal
+          isOpen={pixModalOpen}
+          onClose={() => setPixModalOpen(false)}
+          pixData={pixData}
+          loading={loadingPix}
+          onSuccess={() => {
+            setPixModalOpen(false);
+            toast.success("Passe PIX ativado com sucesso!");
+          }}
+        />
       </div>
     );
   }
 
-  // Free Tier Promotiom
+  // ================= FREE TIER PROMOTION (DUAL OPTIONS: PIX + RECURRING CARD) =================
   return (
-    <div className="p-5">
-      <div className="bg-gradient-to-br from-rose-950 via-rose-900 to-rose-950 rounded-[2rem] p-8 text-white shadow-2xl relative overflow-hidden border border-rose-800/50 shadow-rose-900/20">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-5 rounded-full -mr-10 -mt-10 blur-2xl"></div>
-        <div className="absolute bottom-0 left-0 w-24 h-24 bg-rose-400 opacity-10 rounded-full -ml-8 -mb-8 blur-xl"></div>
+    <div className="p-4 sm:p-5 max-w-2xl mx-auto">
+      <div className="bg-gradient-to-b from-slate-900 via-slate-900 to-purple-950 rounded-3xl p-6 sm:p-8 text-white shadow-2xl relative overflow-hidden border border-yellow-500/30">
+        <div className="absolute top-0 right-0 w-48 h-48 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
         
         <div className="relative z-10">
-          <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-rose-500/20 to-orange-500/20 text-rose-200 text-xs font-bold uppercase tracking-widest px-4 py-1.5 rounded-full mb-6 border border-rose-400/30 shadow-inner backdrop-blur-md">
+          <div className="inline-flex items-center gap-1.5 bg-yellow-500/20 text-yellow-300 text-xs font-bold uppercase tracking-widest px-3.5 py-1 rounded-full mb-4 border border-yellow-400/30 backdrop-blur-md">
             <Crown className="w-3.5 h-3.5" />
-            <span>VIP / Premium</span>
+            <span>Florescer Premium VIP</span>
           </div>
           
-          <h3 className="text-3xl font-bold font-serif mb-3 tracking-wide">Aprofunde sua jornada</h3>
-          <p className="text-rose-200/90 text-sm mb-6 leading-relaxed">
-            Desbloqueie todo o potencial do Florescer. Tenha ferramentas exclusivas para o seu momento com Deus.
+          <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight mb-2">
+            Aprofunde sua comunhão com Deus
+          </h3>
+          <p className="text-xs sm:text-sm text-purple-200/90 mb-6 leading-relaxed">
+            Escolha o modelo que preferir: teste por 30 dias via PIX sem renovação automática ou assine no cartão com cancelamento fácil.
           </p>
           
-          <div className="space-y-3 mb-6">
+          {/* Benefícios */}
+          <div className="space-y-2.5 mb-6">
             {vipBenefits.map((benefit, i) => (
-              <div key={i} className="flex items-start gap-4 text-sm bg-white/5 p-4 rounded-2xl border border-white/10 backdrop-blur-sm">
-                <CheckCircle2 className="w-5 h-5 text-rose-300 shrink-0 mt-0.5" />
+              <div key={i} className="flex items-start gap-3 bg-white/5 p-3.5 rounded-2xl border border-white/10 backdrop-blur-sm">
+                <div className="p-2 rounded-xl bg-yellow-500/20 text-yellow-400 shrink-0">
+                  {benefit.icon}
+                </div>
                 <div>
-                  <p className="font-bold text-white text-base">{benefit.title}</p>
-                  <p className="text-sm text-rose-200/80 mt-1">{benefit.desc}</p>
+                  <p className="font-bold text-white text-xs sm:text-sm">{benefit.title}</p>
+                  <p className="text-[11px] sm:text-xs text-gray-300 mt-0.5 leading-relaxed">{benefit.desc}</p>
                 </div>
               </div>
             ))}
           </div>
 
-          <div className="mb-8 text-center bg-black/20 rounded-3xl p-6 border border-white/10 backdrop-blur-md shadow-inner">
-            <div className="text-4xl font-black text-white mb-1 tracking-tight">R$ 1,00 <span className="text-lg font-normal text-rose-300">/ mês</span></div>
-            <p className="text-sm text-rose-200/60 uppercase tracking-widest font-medium mt-2">Cancele quando quiser, sem burocracia.</p>
+          {/* DUAL PAYMENT OPTIONS */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 mb-6">
+            
+            {/* OPÇÃO 1: PIX 30 DIAS (Passe Avulso) */}
+            <div 
+              id="plan-card-pix-30days"
+              className="bg-gradient-to-b from-emerald-950/50 to-slate-900 border border-emerald-500/40 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden group hover:border-emerald-400/60 transition-all shadow-lg"
+            >
+              <div className="absolute top-2 right-2">
+                <span className="bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">
+                  Sem Renovação
+                </span>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+                    <QrCode className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">Passe de 30 Dias</h4>
+                    <p className="text-[11px] text-emerald-300/80">Pagamento único via PIX</p>
+                  </div>
+                </div>
+
+                <div className="my-3">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl sm:text-3xl font-black text-white">R$ 1,00</span>
+                    <span className="text-xs text-gray-400 font-medium">/ 30 dias de acesso</span>
+                  </div>
+                  <p className="text-[11px] text-gray-300 mt-1 leading-relaxed">
+                    Ideal para testar. Encerra automaticamente após 30 dias sem surpresas ou cobranças no cartão.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                id="btn-buy-pix-pass"
+                onClick={handleGeneratePix}
+                disabled={loadingPix}
+                className="mt-3 w-full py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-70"
+              >
+                {loadingPix ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <QrCode className="w-4 h-4" />
+                    <span>Pagar com PIX (R$ 1,00)</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* OPÇÃO 2: CARTÃO RECORRENTE */}
+            <div 
+              id="plan-card-card-recurring"
+              className="bg-gradient-to-b from-purple-950/50 to-slate-900 border border-yellow-500/40 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden group hover:border-yellow-400/60 transition-all shadow-lg"
+            >
+              <div className="absolute top-2 right-2">
+                <span className="bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Sparkles className="w-2.5 h-2.5" />
+                  <span>Recorrente</span>
+                </span>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-2 rounded-xl bg-yellow-500/20 text-yellow-400">
+                    <CreditCard className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">Assinatura Mensal</h4>
+                    <p className="text-[11px] text-yellow-300/80">Renovação automática</p>
+                  </div>
+                </div>
+
+                <div className="my-3">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl sm:text-3xl font-black text-white">R$ 1,00</span>
+                    <span className="text-xs text-gray-400 font-medium">/ mês no cartão</span>
+                  </div>
+                  <p className="text-[11px] text-gray-300 mt-1 leading-relaxed">
+                    Acesso contínuo sem precisar renovar todo mês. Cancele com 1 clique no app a qualquer hora.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                id="btn-buy-card-subscription"
+                onClick={handleSubscribeCard}
+                disabled={loadingCard}
+                className="mt-3 w-full py-3 px-4 bg-gradient-to-r from-yellow-500 via-amber-400 to-yellow-500 hover:from-yellow-400 hover:to-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-yellow-500/20 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-70"
+              >
+                {loadingCard ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <CreditCard className="w-4 h-4" />
+                    <span>Assinar no Cartão (R$ 1,00)</span>
+                  </>
+                )}
+              </button>
+            </div>
+
           </div>
 
-          <button 
-            onClick={handleSubscribe}
-            disabled={loading}
-            className="w-full bg-white text-rose-950 py-4 rounded-2xl font-bold shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 active:scale-95 transition-all flex justify-center items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-          >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <CreditCard className="w-5 h-5" />}
-            {loading ? "Processando..." : "Assinar via Mercado Pago"}
-          </button>
+          <div className="text-center text-[11px] text-gray-400">
+            🔒 Pagamentos 100% seguros processados via Mercado Pago com criptografia bancária.
+          </div>
         </div>
       </div>
+
+      {/* PIX Modal */}
+      <PixPaymentModal
+        isOpen={pixModalOpen}
+        onClose={() => setPixModalOpen(false)}
+        pixData={pixData}
+        loading={loadingPix}
+        onSuccess={() => {
+          setPixModalOpen(false);
+          toast.success("Passe PIX de 30 dias ativado com sucesso!");
+        }}
+      />
     </div>
   );
 }

@@ -52,11 +52,11 @@ const handleCheckoutSubscription = async (req: express.Request, res: express.Res
 
     const result = await preApproval.create({
       body: {
-        reason: "Assinatura VIP Florescer",
+        reason: "Assinatura VIP Florescer - Recorrente (Cartão)",
         auto_recurring: {
           frequency: 1,
           frequency_type: "months",
-          transaction_amount: 1.00, // Preço promocional/teste de produção: R$ 1,00
+          transaction_amount: 1.00, // Preço promocional/teste: R$ 1,00/mês
           currency_id: "BRL"
         },
         payer_email: userEmail || "test@test.com",
@@ -73,8 +73,131 @@ const handleCheckoutSubscription = async (req: express.Request, res: express.Res
   }
 };
 
+// Gerar Pagamento PIX Avulso de 30 Dias (Passe VIP)
+const handleCreatePixPayment = async (req: express.Request, res: express.Response) => {
+  try {
+    const { userId, userEmail, userName, amount = 1.00 } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: "UserId is required" });
+    }
+
+    if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
+      return res.status(500).json({ error: "Mercado Pago token not configured" });
+    }
+
+    const client = new MercadoPagoConfig({ 
+      accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN 
+    });
+
+    const payment = new Payment(client);
+
+    // Expiração do QR Code PIX em 30 minutos
+    const expirationDate = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+    const result = await payment.create({
+      body: {
+        transaction_amount: Number(amount) || 1.00,
+        description: "Passe VIP Florescer - 30 Dias (PIX)",
+        payment_method_id: "pix",
+        payer: {
+          email: userEmail || "usuario@florescer.app",
+          first_name: (userName || "Leitor Florescer").slice(0, 30),
+        },
+        date_of_expiration: expirationDate,
+        metadata: {
+          user_id: userId,
+          plan_id: "pix_30_days",
+          subscription_type: "pix_prepaid",
+          duration_days: 30
+        },
+        external_reference: userId
+      }
+    });
+
+    const qrCode = result.point_of_interaction?.transaction_data?.qr_code;
+    const qrCodeBase64 = result.point_of_interaction?.transaction_data?.qr_code_base64;
+    const ticketUrl = result.point_of_interaction?.transaction_data?.ticket_url;
+
+    res.json({ 
+      id: result.id, 
+      status: result.status,
+      qrCode,
+      qrCodeBase64,
+      ticketUrl,
+      expiresAt: result.date_of_expiration,
+      amount: result.transaction_amount
+    });
+  } catch (error: any) {
+    console.error("PIX creation error:", error);
+    res.status(500).json({ error: error.message || "Falha ao gerar PIX" });
+  }
+};
+
+// Checar Status do Pagamento PIX em tempo real (Polling)
+const handleCheckPaymentStatus = async (req: express.Request, res: express.Response) => {
+  try {
+    const paymentId = req.params.id;
+    if (!paymentId) {
+      return res.status(400).json({ error: "Payment ID is required" });
+    }
+
+    if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
+      return res.status(500).json({ error: "Mercado Pago token not configured" });
+    }
+
+    const client = new MercadoPagoConfig({ 
+      accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN 
+    });
+
+    const payment = new Payment(client);
+    const paymentData = await payment.get({ id: Number(paymentId) });
+
+    if (paymentData.status === 'approved') {
+      const userId = (paymentData.metadata as any)?.user_id || paymentData.external_reference;
+      if (userId) {
+        const firestore = getFirestore();
+        const userRef = firestore.collection("users").doc(userId);
+        const userDoc = await userRef.get();
+
+        if (userDoc.exists) {
+          const userData = userDoc.data();
+          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+          // Idempotent update
+          if (userData?.lastProcessedPaymentId !== String(paymentId) || userData?.isPremium !== true) {
+            await userRef.update({
+              isPremium: true,
+              subscriptionType: 'pix_prepaid',
+              subscriptionStatus: 'active',
+              subscriptionPlan: 'pix_30_days',
+              subscriptionExpiresAt: expiresAt,
+              lastProcessedPaymentId: String(paymentId),
+              cancelAtPeriodEnd: false,
+              subscriptionUpdatedAt: new Date().toISOString()
+            });
+            console.log(`[Check Status] Auto-activated 30-day PIX pass for user ${userId}`);
+          }
+        }
+      }
+    }
+
+    res.json({
+      id: paymentData.id,
+      status: paymentData.status,
+      status_detail: paymentData.status_detail,
+      isApproved: paymentData.status === 'approved'
+    });
+  } catch (error: any) {
+    console.error("Check status error:", error);
+    res.status(500).json({ error: "Failed to check payment status" });
+  }
+};
+
 app.post("/api/checkout", handleCheckoutSubscription);
 app.post("/api/create-subscription", handleCheckoutSubscription);
+app.post("/api/create-pix", handleCreatePixPayment);
+app.get("/api/payment/status/:id", handleCheckPaymentStatus);
 
 app.post("/api/cancel-subscription", async (req, res) => {
   try {
@@ -113,15 +236,17 @@ app.post("/api/cancel-subscription", async (req, res) => {
 
       await userRef.update({
         cancelAtPeriodEnd: true,
-        subscriptionStatus: 'canceled'
-        // isPremium stays true until period ends!
+        subscriptionStatus: 'canceled',
+        subscriptionUpdatedAt: new Date().toISOString()
+        // isPremium stays true until period ends (managed by expiration check)!
       });
     } else {
-      // Manual premium (Admin)
+      // Manual premium or PIX
       await userRef.update({
         isPremium: false,
         cancelAtPeriodEnd: false,
-        subscriptionStatus: 'canceled'
+        subscriptionStatus: 'canceled',
+        subscriptionUpdatedAt: new Date().toISOString()
       });
     }
 
@@ -178,15 +303,16 @@ const handleMercadoPagoWebhook = async (req: express.Request, res: express.Respo
               const expiresAt = new Date(Date.now() + 31 * 24 * 60 * 60 * 1000).toISOString();
               await userRef.update({ 
                 isPremium: true, 
+                subscriptionType: 'credit_card_recurring',
                 mpSubscriptionId: String(subId),
                 subscriptionStatus: sub.status,
-                subscriptionPlan: 'monthly',
+                subscriptionPlan: 'monthly_card',
                 subscriptionExpiresAt: expiresAt,
                 cancelAtPeriodEnd: false,
                 lastProcessedSubscriptionId: String(subId),
                 subscriptionUpdatedAt: new Date().toISOString()
               });
-              console.log(`[MP Webhook] Granted premium access to user ${userId} for sub ${subId}`);
+              console.log(`[MP Webhook] Granted recurring card premium access to user ${userId} for sub ${subId}`);
             }
           }
         } else if (sub.status === 'cancelled') {
@@ -249,18 +375,19 @@ const handleMercadoPagoWebhook = async (req: express.Request, res: express.Respo
                 return res.status(200).send("OK: Idempotent - Payment already processed");
               }
 
-              const expiresAt = new Date(Date.now() + 31 * 24 * 60 * 60 * 1000).toISOString();
+              const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
               await userRef.update({
                 isPremium: true,
+                subscriptionType: 'pix_prepaid',
                 subscriptionStatus: 'active',
-                subscriptionPlan: (paymentData.metadata as any)?.plan_id || 'monthly',
+                subscriptionPlan: (paymentData.metadata as any)?.plan_id || 'pix_30_days',
                 subscriptionExpiresAt: expiresAt,
                 lastProcessedPaymentId: String(paymentId),
                 cancelAtPeriodEnd: false,
                 subscriptionUpdatedAt: new Date().toISOString()
               });
-              console.log(`[MP Webhook] Granted premium access to user ${userId} for payment ${paymentId}`);
+              console.log(`[MP Webhook] Granted 30-day PIX access to user ${userId} for payment ${paymentId}`);
             } else if (
               paymentData.status === 'refunded' || 
               paymentData.status === 'charged_back' || 

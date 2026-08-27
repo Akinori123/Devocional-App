@@ -7,7 +7,11 @@
         { "name": "displayName", "type": "string" },
         { "name": "email", "type": "string" },
         { "name": "subscriptionStatus", "type": "string" },
-        { "name": "stripeCustomerId", "type": "string" },
+        { "name": "subscriptionType", "type": "string" },
+        { "name": "subscriptionExpiresAt", "type": "string" },
+        { "name": "cancelAtPeriodEnd", "type": "boolean" },
+        { "name": "mpSubscriptionId", "type": "string" },
+        { "name": "lastProcessedPaymentId", "type": "string" },
         { "name": "createdAt", "type": "timestamp" }
       ],
       "description": "User profiles and billing identifiers."

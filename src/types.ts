@@ -11,9 +11,12 @@ export interface UserProfile {
   uid: string;
   displayName: string;
   email: string;
-  subscriptionStatus: 'free' | 'premium' | 'canceled';
+  subscriptionStatus: 'free' | 'premium' | 'canceled' | 'expired' | 'active' | 'authorized';
+  subscriptionType?: 'pix_prepaid' | 'credit_card_recurring' | 'admin_grant';
+  subscriptionExpiresAt?: string;
   cancelAtPeriodEnd?: boolean;
   mpSubscriptionId?: string;
+  lastProcessedPaymentId?: string;
   createdAt: number;
   isAdmin?: boolean;
   isBanned?: boolean;

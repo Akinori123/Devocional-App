@@ -28,9 +28,12 @@ export interface UserProfile {
   activeTheme?: string;
   bibleProgress?: Record<string, number[]>;
   lastReadReference?: BibleLastRead;
-  subscriptionStatus?: 'free' | 'premium' | 'canceled';
+  subscriptionStatus?: 'free' | 'premium' | 'canceled' | 'expired' | 'active' | 'authorized';
+  subscriptionType?: 'pix_prepaid' | 'credit_card_recurring' | 'admin_grant';
+  subscriptionExpiresAt?: string;
   cancelAtPeriodEnd?: boolean;
   mpSubscriptionId?: string;
+  lastProcessedPaymentId?: string;
   isPremium?: boolean;
   subscriptionDate?: string | null;
   photoURL?: string;
@@ -94,6 +97,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 data.streakCount = 0;
               }
             }
+
+            // Expiration check for PIX (30 days pass) and canceled recurring subscriptions
+            if (data.subscriptionExpiresAt && !data.isAdmin) {
+              const expiresAtTime = new Date(data.subscriptionExpiresAt).getTime();
+              const nowTime = Date.now();
+              if (nowTime > expiresAtTime) {
+                // Subscription has reached its end
+                data.isPremium = false;
+                if (data.subscriptionStatus !== 'expired') {
+                  data.subscriptionStatus = 'expired';
+                  // Sync with Firestore doc in background
+                  updateDoc(docRef, {
+                    isPremium: false,
+                    subscriptionStatus: 'expired',
+                    subscriptionUpdatedAt: new Date().toISOString()
+                  }).catch(err => console.warn("Could not sync expired state to firestore:", err));
+                }
+              }
+            }
+
             setProfile(data);
           }
         }, (error) => {

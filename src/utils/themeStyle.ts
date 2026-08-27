@@ -134,12 +134,17 @@ export const THEME_GRADIENTS: ThemeGradient[] = [
 
 export function getThemeHash(title: string): number {
   if (!title) return 0;
-  let hash = 0;
-  for (let i = 0; i < title.length; i++) {
-    hash = (hash << 5) - hash + title.charCodeAt(i);
-    hash |= 0; // Convert to 32-bit integer
+  const clean = title.replace(/^m[oó]dulo\s*\d+\s*•?\s*/i, '').trim().toLowerCase();
+  let hash = 5381;
+  for (let i = 0; i < clean.length; i++) {
+    hash = ((hash << 5) + hash) + clean.charCodeAt(i);
+    hash |= 0; // 32-bit integer
   }
-  return Math.abs(hash);
+  // Differentiate strongly by initial letter and length
+  const firstCode = clean.charCodeAt(0) || 0;
+  const secondCode = clean.charCodeAt(1) || 0;
+  const finalHash = Math.abs(hash ^ (firstCode * 31) ^ (secondCode * 17));
+  return finalHash;
 }
 
 export function getThemeInitial(title: string): string {

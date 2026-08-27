@@ -308,19 +308,28 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
                     👑 ADMIN
                   </div>
                 ) : (
-                  <div className={cn(
-                    "px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider",
-                    u.isPremium 
-                      ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" 
-                      : "bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-gray-300"
-                  )}>
-                    {u.isPremium ? 'Premium' : 'Free'}
+                  <div className="flex flex-col items-end gap-1">
+                    <div className={cn(
+                      "px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider",
+                      u.isPremium 
+                        ? (u.subscriptionType === 'pix_prepaid'
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                            : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400")
+                        : "bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-gray-300"
+                    )}>
+                      {u.isPremium 
+                        ? (u.subscriptionType === 'pix_prepaid' ? 'PIX (30 Dias)' : 'Cartão Recorrente') 
+                        : 'Free'}
+                    </div>
                   </div>
                 )}
               </div>
               
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-4 space-y-1">
                 <p>ID: <span className="font-mono">{u.id}</span></p>
+                {u.subscriptionExpiresAt && (
+                  <p>Validade: <span className="font-medium text-gray-700 dark:text-gray-300">{u.subscriptionExpiresAt.slice(0, 10)}</span></p>
+                )}
                 {u.dailyImageCount !== undefined && <p>Imagens Hoje: {u.dailyImageCount}</p>}
               </div>
 

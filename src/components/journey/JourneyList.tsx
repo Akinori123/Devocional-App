@@ -23,6 +23,8 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [customCurrentPage, setCustomCurrentPage] = useState(1);
+  const CUSTOM_PER_PAGE = 6;
   const [lockedTheme, setLockedTheme] = useState<string | null>(null);
   const THEMES_PER_PAGE = 8; // Reduce per page since cards are bigger
   
@@ -37,12 +39,34 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
     return themes.filter(theme => theme.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [themes, searchQuery]);
 
-  const totalPages = Math.ceil(filteredThemes.length / THEMES_PER_PAGE);
+  const totalPages = Math.ceil(filteredThemes.length / THEMES_PER_PAGE) || 1;
   const paginatedThemes = filteredThemes.slice((currentPage - 1) * THEMES_PER_PAGE, currentPage * THEMES_PER_PAGE);
+
+  // Custom user devotionals pagination
+  const totalCustomPages = Math.ceil(customDevotionals.length / CUSTOM_PER_PAGE) || 1;
+  const paginatedCustomDevotionals = customDevotionals.slice(
+    (customCurrentPage - 1) * CUSTOM_PER_PAGE, 
+    customCurrentPage * CUSTOM_PER_PAGE
+  );
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery]);
+
+  // Ao mudar de página para a próxima ou última, se houver mais no servidor, carrega automaticamente!
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(p => p + 1);
+    }
+    // Se estiver na última página ou penúltima e ainda existirem temas no servidor Firestore, carrega automaticamente
+    if (hasMoreGlobal) {
+      loadMoreGlobalDevotionals();
+    }
+  };
+
+  const handlePrevPage = () => {
+    setCurrentPage(p => Math.max(1, p - 1));
+  };
 
   const handleThemeClick = (theme: string) => {
     const themeDevotionals = allDevotionals.filter(d => d.theme === theme).sort((a, b) => {
@@ -240,35 +264,26 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
                 })}
               </div>
 
-              {totalPages > 1 && (
+              {(totalPages > 1 || hasMoreGlobal) && (
                 <div className="flex items-center justify-between mt-6 bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-xl p-2 shadow-sm transition-colors duration-200">
                   <button
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    onClick={handlePrevPage}
                     disabled={currentPage === 1}
-                    className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg disabled:opacity-50 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent transition-colors"
+                    className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg disabled:opacity-50 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent transition-colors flex items-center gap-1"
+                    title="Página Anterior"
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </button>
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
-                    Página {currentPage} de {totalPages}
+                    Página {currentPage} {totalPages > 1 ? `de ${totalPages}` : ''}
                   </span>
                   <button
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                    className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg disabled:opacity-50 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent transition-colors"
+                    onClick={handleNextPage}
+                    disabled={currentPage === totalPages && !hasMoreGlobal}
+                    className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg disabled:opacity-50 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent transition-colors flex items-center gap-1"
+                    title="Próxima Página"
                   >
                     <ChevronRight className="w-5 h-5" />
-                  </button>
-                </div>
-              )}
-
-              {hasMoreGlobal && (
-                <div className="mt-4 flex justify-center">
-                  <button 
-                    onClick={loadMoreGlobalDevotionals}
-                    className="text-xs font-semibold text-yellow-600 dark:text-yellow-500 bg-yellow-50 dark:bg-yellow-900/20 px-4 py-2 rounded-full hover:bg-yellow-100 dark:hover:bg-yellow-900/40 transition-colors"
-                  >
-                    Carregar mais temas do servidor
                   </button>
                 </div>
               )}
@@ -279,12 +294,15 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
         {/* Custom Devotionals (UGC) */}
         {customDevotionals.length > 0 && (
           <section>
-            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-4 flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-yellow-500" />
-              Meus Devocionais
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-yellow-500" />
+                Meus Devocionais ({customDevotionals.length})
+              </h2>
+            </div>
+            
             <div className="space-y-3">
-              {customDevotionals.map(dev => (
+              {paginatedCustomDevotionals.map(dev => (
                 <div key={dev.id} className="relative group">
                   <button
                     onClick={() => onSelectDevotional(dev, false)}
@@ -331,6 +349,31 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
                 </div>
               ))}
             </div>
+
+            {/* Custom Devotionals Pagination */}
+            {totalCustomPages > 1 && (
+              <div className="flex items-center justify-between mt-4 bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-xl p-2 shadow-sm transition-colors duration-200">
+                <button
+                  onClick={() => setCustomCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={customCurrentPage === 1}
+                  className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg disabled:opacity-50 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent transition-colors"
+                  title="Página Anterior"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                  Página {customCurrentPage} de {totalCustomPages}
+                </span>
+                <button
+                  onClick={() => setCustomCurrentPage(p => Math.min(totalCustomPages, p + 1))}
+                  disabled={customCurrentPage === totalCustomPages}
+                  className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg disabled:opacity-50 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent transition-colors"
+                  title="Próxima Página"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+            )}
           </section>
         )}
       </div>
