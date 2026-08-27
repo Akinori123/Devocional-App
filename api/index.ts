@@ -529,43 +529,34 @@ REQUISITOS ESSENCIAIS:
 
 Retorne estritamente o JSON com as chaves title, beautifulWord e content.`;
 
-    const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
     let response: any = null;
     let lastError: any = null;
 
     for (const model of modelsToTry) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          response = await ai.models.generateContent({
-            model,
-            contents: prompt,
-            config: {
-              systemInstruction: "Você é um pastor e conselheiro cristão acolhedor, bíblico e sábio. Sua missão é criar reflexões devocionais de alta qualidade. Retorne ESTRITAMENTE o JSON solicitado.",
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  title: { type: Type.STRING },
-                  beautifulWord: { type: Type.STRING },
-                  content: { type: Type.STRING }
-                },
-                required: ["title", "beautifulWord", "content"]
-              }
+      try {
+        response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            systemInstruction: "Você é um pastor e conselheiro cristão acolhedor, bíblico e sábio. Sua missão é criar reflexões devocionais de alta qualidade. Retorne ESTRITAMENTE o JSON solicitado.",
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                beautifulWord: { type: Type.STRING },
+                content: { type: Type.STRING }
+              },
+              required: ["title", "beautifulWord", "content"]
             }
-          });
-          if (response?.text) break;
-        } catch (err: any) {
-          lastError = err;
-          console.warn(`[Index devotional] Model ${model} attempt ${attempt + 1} error:`, err?.message || err);
-          const isBusy = err?.message?.includes('503') || 
-                         err?.message?.includes('UNAVAILABLE') || 
-                         err?.message?.includes('high demand') ||
-                         err?.message?.includes('429');
-          if (!isBusy) break;
-          await new Promise((r) => setTimeout(r, 800));
-        }
+          }
+        });
+        if (response?.text) break;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[Index devotional] Model ${model} failed, attempting next model:`, err?.message || err);
       }
-      if (response?.text) break;
     }
 
     if (!response?.text) {
@@ -629,45 +620,36 @@ Mantenha o tom empático, pastoral, acolhedor e edificante em até 3 parágrafos
 
     const systemInstruction = `Você é um teólogo e pastor empático. Explique de forma clara, acessível e devocional o significado do versículo bíblico fornecido. Traga o contexto histórico se necessário, mas foque em como aplicar essa palavra na vida prática hoje. Mantenha a resposta em até 3 parágrafos curtos. Retorne estritamente o formato JSON estruturado.`;
 
-    const modelsToTry = ["gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
     let response: any = null;
     let lastError: any = null;
 
     for (const model of modelsToTry) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          response = await ai.models.generateContent({
-            model,
-            contents: prompt,
-            config: {
-              systemInstruction,
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  context: { type: Type.STRING, description: "Contexto histórico e teológico resumido" },
-                  meaning: { type: Type.STRING, description: "Significado da mensagem" },
-                  practicalApplication: { type: Type.STRING, description: "Aplicação prática para hoje" },
-                  shortPrayer: { type: Type.STRING, description: "Oração curta de 1 a 2 frases" }
-                },
-                required: ["context", "meaning", "practicalApplication", "shortPrayer"]
-              }
+      try {
+        response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                context: { type: Type.STRING, description: "Contexto histórico e teológico resumido" },
+                meaning: { type: Type.STRING, description: "Significado da mensagem" },
+                practicalApplication: { type: Type.STRING, description: "Aplicação prática para hoje" },
+                shortPrayer: { type: Type.STRING, description: "Oração curta de 1 a 2 frases" }
+              },
+              required: ["context", "meaning", "practicalApplication", "shortPrayer"]
             }
-          });
+          }
+        });
 
-          if (response?.text) break;
-        } catch (err: any) {
-          lastError = err;
-          console.warn(`[Index explain-verse] Model ${model} attempt ${attempt + 1} error:`, err?.message || err);
-          const isBusy = err?.message?.includes('503') || 
-                         err?.message?.includes('UNAVAILABLE') || 
-                         err?.message?.includes('high demand') ||
-                         err?.message?.includes('429');
-          if (!isBusy) break;
-          await new Promise((r) => setTimeout(r, 800));
-        }
+        if (response?.text) break;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[Index explain-verse] Model ${model} failed, attempting next model:`, err?.message || err);
       }
-      if (response?.text) break;
     }
 
     if (!response?.text) {
@@ -712,46 +694,37 @@ app.post("/api/gemini/generate-bulk-devotionals", async (req, res) => {
     if (partNumber && partNumber > 1) {
       prompt = `Este é o volume ${partNumber} sobre o tema "${theme}". Gere 7 novos dias com abordagens mais profundas e avançadas, não repita os conceitos básicos dos volumes anteriores.\n\nINSTRUÇÕES:\n1. Ortografia em Português (Brasil).\n2. Crie 7 objetos diferentes no array.\n3. O versículo base não deve se repetir.\n4. Cada reflexão deve ter entre 120 e 200 palavras, seguida de uma oração curta ao final no formato '**Oração:** ...'.`;
     }
-    const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
     let response: any = null;
     let lastError: any = null;
 
     for (const model of modelsToTry) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          response = await ai.models.generateContent({
-            model,
-            contents: prompt,
-            config: {
-              systemInstruction: "Você é um conselheiro cristão sábio e acolhedor. Sua missão é escrever um módulo de 7 dias de devocionais sobre um tema específico. Retorne EXATAMENTE um array JSON contendo 7 objetos.",
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    title: { type: Type.STRING },
-                    beautifulWord: { type: Type.STRING },
-                    content: { type: Type.STRING }
-                  },
-                  required: ["title", "beautifulWord", "content"]
-                }
+      try {
+        response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            systemInstruction: "Você é um conselheiro cristão sábio e acolhedor. Sua missão é escrever um módulo de 7 dias de devocionais sobre um tema específico. Retorne EXATAMENTE um array JSON contendo 7 objetos.",
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING },
+                  beautifulWord: { type: Type.STRING },
+                  content: { type: Type.STRING }
+                },
+                required: ["title", "beautifulWord", "content"]
               }
             }
-          });
-          if (response?.text) break;
-        } catch (err: any) {
-          lastError = err;
-          console.warn(`[Index bulk] Model ${model} attempt ${attempt + 1} error:`, err?.message || err);
-          const isBusy = err?.message?.includes('503') || 
-                         err?.message?.includes('UNAVAILABLE') || 
-                         err?.message?.includes('high demand') ||
-                         err?.message?.includes('429');
-          if (!isBusy) break;
-          await new Promise((r) => setTimeout(r, 800));
-        }
+          }
+        });
+        if (response?.text) break;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[Index bulk] Model ${model} failed, attempting next model:`, err?.message || err);
       }
-      if (response?.text) break;
     }
 
     if (!response?.text) {

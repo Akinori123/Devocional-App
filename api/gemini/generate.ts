@@ -62,47 +62,34 @@ REQUISITOS ESSENCIAIS:
 
 Retorne estritamente o JSON com as chaves title, beautifulWord e content.`;
 
-    const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
     let response: any = null;
     let lastError: any = null;
 
     for (const model of modelsToTry) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          response = await ai.models.generateContent({
-            model,
-            contents: prompt,
-            config: {
-              systemInstruction: "Você é um pastor e conselheiro cristão acolhedor, bíblico e sábio. Sua missão é criar reflexões devocionais de alta qualidade. Retorne ESTRITAMENTE o JSON solicitado.",
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  title: { type: Type.STRING },
-                  beautifulWord: { type: Type.STRING },
-                  content: { type: Type.STRING }
-                },
-                required: ["title", "beautifulWord", "content"]
-              }
+      try {
+        response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            systemInstruction: "Você é um pastor e conselheiro cristão acolhedor, bíblico e sábio. Sua missão é criar reflexões devocionais de alta qualidade. Retorne ESTRITAMENTE o JSON solicitado.",
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                beautifulWord: { type: Type.STRING },
+                content: { type: Type.STRING }
+              },
+              required: ["title", "beautifulWord", "content"]
             }
-          });
-          if (response?.text) {
-            break;
           }
-        } catch (err: any) {
-          lastError = err;
-          console.warn(`[Gemini generate] Model ${model} attempt ${attempt + 1} error:`, err?.message || err);
-          const isBusy = err?.message?.includes('503') || 
-                         err?.message?.includes('UNAVAILABLE') || 
-                         err?.message?.includes('high demand') ||
-                         err?.message?.includes('429');
-          if (!isBusy) {
-            break; // Try next model immediately
-          }
-          await new Promise((r) => setTimeout(r, 800));
-        }
+        });
+        if (response?.text) break;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[Gemini generate] Model ${model} failed, attempting next model:`, err?.message || err);
       }
-      if (response?.text) break;
     }
 
     if (!response?.text) {

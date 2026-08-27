@@ -535,26 +535,58 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
 
     setIsExplaining(true);
     try {
-      const res = await fetch('/api/gemini/explain-verse', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          reference,
-          text,
-          bookName: book.name,
-          chapter,
-          verseNumbers: selectedVersesList.map(v => v.verse)
-        })
+      // AbortController to prevent infinite loading on slow/hanging networks (timeout after 35s)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 35000);
+
+      const payload = JSON.stringify({
+        reference,
+        text,
+        bookName: book.name,
+        chapter,
+        verseNumbers: selectedVersesList.map(v => v.verse)
       });
 
+      let res: Response;
+      try {
+        res = await fetch('/api/gemini/explain-verse', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: payload,
+          signal: controller.signal
+        });
+      } catch (fetchErr: any) {
+        if (fetchErr.name === 'AbortError') {
+          throw new Error('A requisição demorou muito para responder (Tempo limite esgotado). Verifique sua conexão e a chave GEMINI_API_KEY na Vercel.');
+        }
+        throw fetchErr;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || 'Erro ao obter explicação do teólogo.');
+        let errorMsg = `Erro ${res.status}: Falha ao consultar o Teólogo.`;
+        try {
+          const errData = await res.json();
+          if (errData?.error) {
+            errorMsg = errData.error;
+          }
+        } catch {
+          // not json
+        }
+        if (res.status === 404) {
+          errorMsg = "Rota da API não encontrada (404). Verifique as variáveis de ambiente e o deploy na Vercel.";
+        }
+        throw new Error(errorMsg);
       }
 
       const data = await res.json();
+      if (!data || (!data.context && !data.meaning && !data.practicalApplication)) {
+        throw new Error('A resposta do Teólogo veio incompleta. Tente selecionar o versículo novamente.');
+      }
+
       setExplanationResult({
         reference,
         text,
