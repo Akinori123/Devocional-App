@@ -11,6 +11,7 @@ import { parseVerseReference } from '../utils/bibleParser';
 import { differenceInCalendarDays } from 'date-fns';
 import { useToast } from '../context/ToastContext';
 import { getJourneyStatus } from '../utils/journey';
+import { getThemeStyle } from '../utils/themeStyle';
 
 import { DevotionalItem } from '../data/devotionals';
 
@@ -560,6 +561,7 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
                 {carouselItems.map((devotional, index) => {
                   const isCurrent = index === 0;
                   const isCompleted = devotional.isCompleted;
+                  const themeStyle = getThemeStyle(devotional.theme);
                   
                   return (
                     <div 
@@ -567,20 +569,28 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
                       key={`${devotional.id}-${index}`} 
                       className={`bg-white dark:bg-slate-800 rounded-2xl shadow-sm border ${
                         isCurrent 
-                          ? 'border-yellow-300/80 dark:border-yellow-600/40 ring-2 ring-yellow-400/20' 
-                          : 'border-gray-100 dark:border-slate-700'
-                      } overflow-hidden flex flex-col shrink-0 w-[280px] snap-center transition-colors duration-200`}
+                          ? 'border-yellow-300/90 dark:border-yellow-500/50 ring-2 ring-yellow-400/20' 
+                          : 'border-gray-100 dark:border-slate-700 opacity-90 hover:opacity-100'
+                      } overflow-hidden flex flex-col shrink-0 w-[280px] snap-center transition-all duration-200`}
                     >
-                      <div className={`h-24 ${
-                        isCurrent 
-                          ? 'bg-gradient-to-br from-yellow-100/70 to-amber-100/70 dark:from-yellow-950/40 dark:to-amber-900/30' 
-                          : 'bg-gray-50 dark:bg-slate-800/80'
-                      } flex items-center justify-center p-4 relative overflow-hidden`}>
-                        <div className="relative w-12 h-16 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-md shadow-sm flex items-center justify-center">
+                      {/* Deterministic Gradient Banner with Letter Avatar */}
+                      <div className={`h-24 ${themeStyle.gradient} flex items-center justify-center p-4 relative overflow-hidden`}>
+                        {/* Background pattern circles */}
+                        <div className="absolute -right-4 -bottom-4 w-24 h-24 rounded-full bg-white/10 blur-xs pointer-events-none" />
+                        <div className="absolute -left-4 -top-4 w-16 h-16 rounded-full bg-black/10 blur-xs pointer-events-none" />
+                        
+                        {/* Avatar / Icon Centerpiece */}
+                        <div className={`relative w-14 h-14 rounded-2xl ${
+                          isCompleted && !isCurrent
+                            ? 'bg-white/85 dark:bg-slate-900/85 text-emerald-600 dark:text-emerald-400'
+                            : 'bg-white/20 text-white backdrop-blur-md border border-white/30'
+                        } shadow-sm flex items-center justify-center`}>
                           {isCompleted && !isCurrent ? (
-                            <CheckCircle2 className="text-emerald-500 w-6 h-6" />
+                            <CheckCircle2 className="w-8 h-8" />
                           ) : (
-                            <BookOpen className="text-yellow-500 w-6 h-6" />
+                            <span className="font-serif font-black text-2xl tracking-tight drop-shadow-md select-none">
+                              {themeStyle.initial}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -602,7 +612,7 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
                                 : `DIA ${devotional.dayNumber} • LIDO`}
                             </span>
                             
-                            <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 truncate max-w-[100px]">
+                            <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 truncate max-w-[100px]" title={devotional.theme}>
                               {devotional.theme}
                             </span>
                           </div>

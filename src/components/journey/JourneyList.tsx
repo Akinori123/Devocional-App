@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useDevotionals } from '../../context/DevotionalContext';
 import { useAuth } from '../../context/AuthContext';
-import { Plus, Wand2, BookOpen, Trash2, X, Check, Search, ChevronLeft, ChevronRight, MessageSquareHeart } from 'lucide-react';
+import { Plus, Wand2, BookOpen, Trash2, X, Check, Search, ChevronLeft, ChevronRight, MessageSquareHeart, CheckCircle2 } from 'lucide-react';
 import { DevotionalItem } from '../../data/devotionals';
 import { TabType } from '../../types';
 import { format } from 'date-fns';
 import { getJourneyStatus } from '../../utils/journey';
+import { getThemeStyle } from '../../utils/themeStyle';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 
@@ -195,26 +196,44 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
                      ? (themeDevs.length === 1 ? (themeDevs[0].title || theme) : theme)
                      : `Módulo ${currentModule} • ${displayName}`;
                    
+                   const themeStyle = getThemeStyle(displayName);
+                   const isAllModuleCompleted = totalInCurrentModule > 0 && moduleReadCount === totalInCurrentModule;
+
                    return (
                     <button
                       key={theme}
                       onClick={() => handleThemeClick(theme)}
-                      className="w-full text-left bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 hover:border-yellow-200 dark:hover:border-slate-600 transition-all group flex flex-col gap-3"
+                      className="w-full text-left bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 hover:border-yellow-200 dark:hover:border-slate-600 transition-all group flex items-center gap-3.5"
                     >
-                      <div className="flex justify-between items-center">
-                        <h3 className="font-bold text-gray-900 dark:text-white group-hover:text-yellow-600 dark:group-hover:text-yellow-400 transition-colors text-sm">
-                          {cardTitle}
-                        </h3>
-                        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-slate-700 px-2.5 py-1 rounded-full shrink-0">
-                          {moduleReadCount}/{totalInCurrentModule}
-                        </span>
+                      {/* Deterministic Avatar */}
+                      <div className={`w-12 h-12 rounded-xl ${themeStyle.gradient} flex items-center justify-center text-white font-bold text-xl shadow-xs shrink-0 relative overflow-hidden`}>
+                        {isAllModuleCompleted ? (
+                          <CheckCircle2 className="w-6 h-6 text-white" />
+                        ) : (
+                          <span className="font-serif tracking-tight drop-shadow-xs">{themeStyle.initial}</span>
+                        )}
                       </div>
-                      
-                      <div className="w-full h-2 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-yellow-400 dark:bg-yellow-500 rounded-full transition-all duration-500 ease-out"
-                          style={{ width: `${progressPercent}%` }}
-                        />
+
+                      <div className="flex-1 min-w-0 flex flex-col gap-2">
+                        <div className="flex justify-between items-center gap-2">
+                          <h3 className="font-bold text-gray-900 dark:text-white group-hover:text-yellow-600 dark:group-hover:text-yellow-400 transition-colors text-sm truncate">
+                            {cardTitle}
+                          </h3>
+                          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                            isAllModuleCompleted
+                              ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+                              : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300'
+                          }`}>
+                            {moduleReadCount}/{totalInCurrentModule}
+                          </span>
+                        </div>
+                        
+                        <div className="w-full h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full ${isAllModuleCompleted ? 'bg-emerald-500' : 'bg-yellow-400 dark:bg-yellow-500'} rounded-full transition-all duration-500 ease-out`}
+                            style={{ width: `${progressPercent}%` }}
+                          />
+                        </div>
                       </div>
                     </button>
                   );
