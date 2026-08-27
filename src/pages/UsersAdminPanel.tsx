@@ -189,11 +189,11 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
   if (!isAdmin) return null;
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 dark:bg-slate-900 pb-24">
-      {/* Header */}
-      <div className="sticky top-0 z-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-gray-200 dark:border-slate-800 px-6 pt-12 pb-4">
+    <div className="flex-1 flex flex-col bg-gray-50 dark:bg-slate-900 min-h-screen pb-32 transition-colors duration-200">
+      {/* Header Info & Tabs (Flows naturally on scroll) */}
+      <div className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 px-6 pt-10 pb-4 shrink-0 transition-colors duration-200">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
             <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400" />
           </div>
           <div>
@@ -204,12 +204,12 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
           </div>
         </div>
 
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 rounded-xl text-red-800 dark:text-red-200 text-xs sm:text-sm mb-5">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 rounded-xl text-red-800 dark:text-red-200 text-xs sm:text-sm mb-4">
           <p className="font-bold mb-0.5">Painel Restrito</p>
           <p>Apenas criadores têm acesso a esta área. Aqui você controla todo o aplicativo.</p>
         </div>
 
-        <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-xl shadow-inner mb-4">
+        <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-xl shadow-inner">
           <button
             onClick={() => setMainTab('users')}
             className={cn(
@@ -235,50 +235,51 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
             Gestão de Conteúdo
           </button>
         </div>
-
-        {mainTab === 'users' && (
-          <>
-            <div className="relative mb-4">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Buscar por nome ou e-mail..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-gray-100 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-red-500 transition-all text-gray-900 dark:text-white placeholder:text-gray-500"
-              />
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => setCurrentView('active')}
-                className={cn(
-                  "flex-1 py-2 text-sm font-bold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
-                  currentView === 'active' 
-                    ? "bg-red-600 text-white" 
-                    : "bg-gray-100 text-gray-600 dark:bg-slate-800 dark:text-gray-400"
-                )}
-              >
-                Usuários Ativos
-              </button>
-              <button
-                onClick={() => setCurrentView('trash')}
-                className={cn(
-                  "flex-1 py-2 text-sm font-bold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
-                  currentView === 'trash' 
-                    ? "bg-red-600 text-white" 
-                    : "bg-gray-100 text-gray-600 dark:bg-slate-800 dark:text-gray-400"
-                )}
-              >
-                Lixeira
-              </button>
-            </div>
-          </>
-        )}
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Compact Sticky Search & Filter Bar for Users Tab */}
+      {mainTab === 'users' && (
+        <div className="sticky top-0 z-20 bg-gray-50/95 dark:bg-slate-900/95 backdrop-blur-md px-4 pt-3 pb-2.5 space-y-2 border-b border-gray-200/70 dark:border-slate-800/70 transition-colors duration-200">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Buscar por nome ou e-mail..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 text-sm bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 focus:outline-none transition-all text-gray-900 dark:text-white placeholder:text-gray-500 shadow-xs"
+            />
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => setCurrentView('active')}
+              className={cn(
+                "flex-1 py-1.5 text-xs font-bold rounded-lg transition-all shadow-xs",
+                currentView === 'active' 
+                  ? "bg-red-600 text-white shadow-sm" 
+                  : "bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-700/60"
+              )}
+            >
+              Usuários Ativos
+            </button>
+            <button
+              onClick={() => setCurrentView('trash')}
+              className={cn(
+                "flex-1 py-1.5 text-xs font-bold rounded-lg transition-all shadow-xs",
+                currentView === 'trash' 
+                  ? "bg-red-600 text-white shadow-sm" 
+                  : "bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-700/60"
+              )}
+            >
+              Lixeira
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Content Area - Natural Page Scrolling */}
+      <div className="p-4 space-y-4">
         {mainTab === 'content' ? (
           <AdminTab />
         ) : (
