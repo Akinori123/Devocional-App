@@ -98,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               }
             }
 
-            // Expiration check for PIX (30 days pass) and canceled recurring subscriptions
+            // Expiration check for PIX (30 days pass) and recurring subscriptions
             if (data.subscriptionExpiresAt && !data.isAdmin) {
               const expiresAtTime = new Date(data.subscriptionExpiresAt).getTime();
               const nowTime = Date.now();
@@ -113,6 +113,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     subscriptionStatus: 'expired',
                     subscriptionUpdatedAt: new Date().toISOString()
                   }).catch(err => console.warn("Could not sync expired state to firestore:", err));
+                }
+              } else {
+                // O usuário possui dias válidos contratados! Garante isPremium = true
+                if (data.isPremium !== true) {
+                  data.isPremium = true;
+                  if (data.subscriptionStatus !== 'active' && data.subscriptionStatus !== 'authorized' && !data.cancelAtPeriodEnd) {
+                    data.subscriptionStatus = 'active';
+                  }
+                  updateDoc(docRef, {
+                    isPremium: true,
+                    subscriptionStatus: data.cancelAtPeriodEnd ? 'cancelled' : 'active',
+                    subscriptionUpdatedAt: new Date().toISOString()
+                  }).catch(err => console.warn("Could not sync active state to firestore:", err));
                 }
               }
             }

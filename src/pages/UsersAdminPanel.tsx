@@ -13,6 +13,7 @@ import {
   RefreshCw, 
   X, 
   ShieldOff, 
+  AlertTriangle,
   UserX, 
   UserCheck, 
   Users, 
@@ -43,6 +44,7 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
   const [userToSoftDelete, setUserToSoftDelete] = useState<any>(null);
   const [userToHardDelete, setUserToHardDelete] = useState<any>(null);
   const [userToManageVip, setUserToManageVip] = useState<any>(null);
+  const [userToRevokeVip, setUserToRevokeVip] = useState<any>(null);
   const [cardSubscriptionIdInput, setCardSubscriptionIdInput] = useState('');
   const [savingVip, setSavingVip] = useState(false);
   const [currentView, setCurrentView] = useState<'active' | 'trash'>('active');
@@ -221,6 +223,7 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
       
       setUsers(users.map(u => u.id === targetUser.id ? { ...u, ...updatedData } : u));
       setUserToManageVip(null);
+      setUserToRevokeVip(null);
     } catch (err) {
       console.error(err);
       toast.error('Erro ao revogar status VIP.');
@@ -722,15 +725,60 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
                     <button
                       id="btn-revoke-vip-user"
                       disabled={savingVip}
-                      onClick={() => handleRevokeVip(userToManageVip)}
+                      onClick={() => setUserToRevokeVip(userToManageVip)}
                       className="w-full py-2.5 px-4 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
                     >
-                      {savingVip ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldOff className="w-3.5 h-3.5" />}
+                      <ShieldOff className="w-3.5 h-3.5" />
                       <span>Revogar VIP (Tornar Usuário Gratuito)</span>
                     </button>
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Revoke VIP Confirmation Modal */}
+      {userToRevokeVip && (
+        <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-sm shadow-2xl border border-rose-100 dark:border-rose-900/40 overflow-hidden animate-in zoom-in-95 duration-200 p-6 text-center">
+            <div className="w-12 h-12 bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center mx-auto mb-4 ring-8 ring-rose-50 dark:ring-rose-950/20">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            
+            <h3 className="font-bold text-lg text-gray-900 dark:text-white mb-2">
+              Revogar Acesso Premium?
+            </h3>
+            
+            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed mb-4">
+              Tem certeza que deseja revogar o acesso Premium deste usuário? Esta ação não reembolsa o usuário automaticamente.
+            </p>
+
+            <div className="bg-gray-50 dark:bg-slate-800/80 rounded-xl p-3 mb-6 text-left border border-gray-200 dark:border-slate-700/60">
+              <div className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">Usuário afetado:</div>
+              <div className="text-xs font-bold text-gray-900 dark:text-white truncate mt-0.5">{userToRevokeVip.name || 'Sem nome'}</div>
+              <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5">{userToRevokeVip.email}</div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                id="btn-cancel-revoke-vip"
+                disabled={savingVip}
+                onClick={() => setUserToRevokeVip(null)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-800 dark:text-gray-200 font-bold py-3 rounded-xl transition-colors text-xs active:scale-98 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                id="btn-confirm-revoke-vip"
+                disabled={savingVip}
+                onClick={() => handleRevokeVip(userToRevokeVip)}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-3 rounded-xl transition-all shadow-md shadow-rose-600/20 text-xs flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+              >
+                {savingVip ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldOff className="w-3.5 h-3.5" />}
+                <span>Confirmar</span>
+              </button>
             </div>
           </div>
         </div>

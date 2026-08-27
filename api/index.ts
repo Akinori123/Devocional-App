@@ -134,6 +134,80 @@ const handleCreatePixPayment = async (req: express.Request, res: express.Respons
   }
 };
 
+// Helper centralizado para garantir ativação VIP OBRIGATÓRIA e consistente
+async function activateUserPremium({
+  userId,
+  paymentId,
+  subscriptionId,
+  type,
+  planId = 'pix_30_days',
+  durationDays = 30
+}: {
+  userId: string;
+  paymentId?: string;
+  subscriptionId?: string;
+  type: 'pix_prepaid' | 'credit_card_recurring';
+  planId?: string;
+  durationDays?: number;
+}) {
+  try {
+    const firestore = getFirestore();
+    let targetRef = firestore.collection("users").doc(userId);
+    let userDoc = await targetRef.get();
+
+    // Se não encontrou pelo ID do documento, tenta buscar pelo e-mail
+    if (!userDoc.exists) {
+      const emailQuery = await firestore.collection("users").where("email", "==", userId).limit(1).get();
+      if (!emailQuery.empty) {
+        targetRef = emailQuery.docs[0].ref;
+        userDoc = emailQuery.docs[0];
+      } else {
+        console.warn(`[Activate Premium] User document not found for id/email: ${userId}`);
+        return false;
+      }
+    }
+
+    const userData = userDoc.data();
+    const now = Date.now();
+    
+    // Se o usuário já possuir dias ativos futuros, estende a partir da data atual; caso contrário, conta a partir de agora
+    let baseTime = now;
+    if (userData?.subscriptionExpiresAt) {
+      const existingTime = new Date(userData.subscriptionExpiresAt).getTime();
+      if (existingTime > now) {
+        baseTime = existingTime;
+      }
+    }
+    const newExpiresAt = new Date(baseTime + durationDays * 24 * 60 * 60 * 1000).toISOString();
+
+    // OBRIGATORIAMENTE força isPremium: true, subscriptionStatus: 'active' e cancelAtPeriodEnd: false
+    const updatePayload: Record<string, any> = {
+      isPremium: true,
+      subscriptionStatus: 'active',
+      subscriptionType: type,
+      subscriptionPlan: planId,
+      subscriptionExpiresAt: newExpiresAt,
+      cancelAtPeriodEnd: false,
+      subscriptionUpdatedAt: new Date().toISOString()
+    };
+
+    if (paymentId) {
+      updatePayload.lastProcessedPaymentId = String(paymentId);
+    }
+    if (subscriptionId) {
+      updatePayload.mpSubscriptionId = String(subscriptionId);
+      updatePayload.lastProcessedSubscriptionId = String(subscriptionId);
+    }
+
+    await targetRef.update(updatePayload);
+    console.log(`[Activate Premium] SUCCESS: Forced isPremium=true, subscriptionStatus='active', expiresAt=${newExpiresAt} for user ${targetRef.id}`);
+    return true;
+  } catch (err) {
+    console.error("[Activate Premium] Error activating user premium:", err);
+    return false;
+  }
+}
+
 // Checar Status do Pagamento PIX em tempo real (Polling)
 const handleCheckPaymentStatus = async (req: express.Request, res: express.Response) => {
   try {
@@ -154,31 +228,15 @@ const handleCheckPaymentStatus = async (req: express.Request, res: express.Respo
     const paymentData = await payment.get({ id: Number(paymentId) });
 
     if (paymentData.status === 'approved') {
-      const userId = (paymentData.metadata as any)?.user_id || paymentData.external_reference;
+      const userId = (paymentData.metadata as any)?.user_id || paymentData.external_reference || (paymentData.payer as any)?.email;
       if (userId) {
-        const firestore = getFirestore();
-        const userRef = firestore.collection("users").doc(userId);
-        const userDoc = await userRef.get();
-
-        if (userDoc.exists) {
-          const userData = userDoc.data();
-          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-
-          // Idempotent update
-          if (userData?.lastProcessedPaymentId !== String(paymentId) || userData?.isPremium !== true) {
-            await userRef.update({
-              isPremium: true,
-              subscriptionType: 'pix_prepaid',
-              subscriptionStatus: 'active',
-              subscriptionPlan: 'pix_30_days',
-              subscriptionExpiresAt: expiresAt,
-              lastProcessedPaymentId: String(paymentId),
-              cancelAtPeriodEnd: false,
-              subscriptionUpdatedAt: new Date().toISOString()
-            });
-            console.log(`[Check Status] Auto-activated 30-day PIX pass for user ${userId}`);
-          }
-        }
+        await activateUserPremium({
+          userId,
+          paymentId: String(paymentId),
+          type: 'pix_prepaid',
+          planId: (paymentData.metadata as any)?.plan_id || 'pix_30_days',
+          durationDays: 30
+        });
       }
     }
 
@@ -238,7 +296,7 @@ app.post("/api/cancel-subscription", async (req, res) => {
         cancelAtPeriodEnd: true,
         subscriptionStatus: 'canceled',
         subscriptionUpdatedAt: new Date().toISOString()
-        // isPremium stays true until period ends (managed by expiration check)!
+        // isPremium permanece true até o fim dos dias contratados!
       });
     } else {
       // Manual premium or PIX
@@ -261,15 +319,18 @@ const handleMercadoPagoWebhook = async (req: express.Request, res: express.Respo
   try {
     const { type, data, action } = req.body || {};
     const queryTopic = req.query.topic || req.query.type;
+    
     const isSubscriptionEvent = 
       type === 'subscription_preapproval' || 
+      type === 'preapproval' ||
       queryTopic === 'subscription_preapproval' || 
-      action === 'created' || 
-      action === 'updated';
+      queryTopic === 'preapproval' ||
+      (typeof action === 'string' && (action.startsWith('subscription_preapproval') || action.startsWith('preapproval')));
     
     const isPaymentEvent = 
       type === 'payment' || 
-      queryTopic === 'payment';
+      queryTopic === 'payment' ||
+      (typeof action === 'string' && action.startsWith('payment'));
 
     if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
       console.warn("[MP Webhook] MERCADOPAGO_ACCESS_TOKEN missing on webhook");
@@ -279,131 +340,95 @@ const handleMercadoPagoWebhook = async (req: express.Request, res: express.Respo
     const client = new MercadoPagoConfig({ accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN });
     const firestore = getFirestore();
 
-    // 1. Recorrência / Assinatura (PreApproval)
+    // 1. Recorrência / Assinatura de Cartão (PreApproval)
     if (isSubscriptionEvent) {
-      const subId = data?.id || req.body?.data?.id || req.query?.['data.id'] || req.query?.id;
-      if (subId) {
-        const preApproval = new PreApproval(client);
-        const sub = await preApproval.get({ id: String(subId) });
-        
-        if (sub.status === 'authorized') {
-          if (sub.external_reference) {
-            const userId = sub.external_reference;
-            const userRef = firestore.collection("users").doc(userId);
-            const userDoc = await userRef.get();
-            
-            if (userDoc.exists) {
-              const userData = userDoc.data();
-              // Idempotency check: if already active premium with this subId, bypass write
-              if (userData?.isPremium === true && userData?.mpSubscriptionId === String(subId) && userData?.subscriptionStatus === 'authorized') {
-                console.log(`[MP Webhook] Idempotent: User ${userId} already has active premium for subscription ${subId}. Skipping.`);
-                return res.status(200).send("OK: Idempotent - Already processed");
-              }
-
-              const expiresAt = new Date(Date.now() + 31 * 24 * 60 * 60 * 1000).toISOString();
-              await userRef.update({ 
-                isPremium: true, 
-                subscriptionType: 'credit_card_recurring',
-                mpSubscriptionId: String(subId),
-                subscriptionStatus: sub.status,
-                subscriptionPlan: 'monthly_card',
-                subscriptionExpiresAt: expiresAt,
-                cancelAtPeriodEnd: false,
-                lastProcessedSubscriptionId: String(subId),
+      try {
+        const subId = data?.id || req.body?.data?.id || req.query?.['data.id'] || req.query?.id;
+        if (subId) {
+          const preApproval = new PreApproval(client);
+          const sub = await preApproval.get({ id: String(subId) });
+          
+          if (sub.status === 'authorized') {
+            const userId = sub.external_reference || sub.payer_email;
+            if (userId) {
+              await activateUserPremium({
+                userId,
+                subscriptionId: String(subId),
+                type: 'credit_card_recurring',
+                planId: 'monthly_card',
+                durationDays: 31
+              });
+            }
+          } else if (sub.status === 'cancelled') {
+            const usersRef = firestore.collection("users");
+            const snapshot = await usersRef.where("mpSubscriptionId", "==", String(subId)).get();
+            if (!snapshot.empty) {
+              const doc = snapshot.docs[0];
+              await doc.ref.update({ 
+                subscriptionStatus: 'cancelled',
+                cancelAtPeriodEnd: true,
                 subscriptionUpdatedAt: new Date().toISOString()
               });
-              console.log(`[MP Webhook] Granted recurring card premium access to user ${userId} for sub ${subId}`);
             }
-          }
-        } else if (sub.status === 'cancelled') {
-          // Keep premium until end of cycle or mark cancellation
-          const usersRef = firestore.collection("users");
-          const snapshot = await usersRef.where("mpSubscriptionId", "==", String(subId)).get();
-          if (!snapshot.empty) {
-            const doc = snapshot.docs[0];
-            const data = doc.data();
-            if (data.subscriptionStatus === 'cancelled' && data.cancelAtPeriodEnd === true) {
-              return res.status(200).send("OK: Idempotent - Cancellation already marked");
+          } else if (sub.status === 'expired' || sub.status === 'suspended' || sub.status === 'paused') {
+            const usersRef = firestore.collection("users");
+            const snapshot = await usersRef.where("mpSubscriptionId", "==", String(subId)).get();
+            if (!snapshot.empty) {
+              const doc = snapshot.docs[0];
+              await doc.ref.update({ 
+                isPremium: false, 
+                subscriptionStatus: sub.status,
+                cancelAtPeriodEnd: false,
+                subscriptionUpdatedAt: new Date().toISOString()
+              });
+              console.log(`[MP Webhook] Revoked premium for user ${doc.id} due to status: ${sub.status}`);
             }
-            await doc.ref.update({ 
-              subscriptionStatus: sub.status,
-              cancelAtPeriodEnd: true,
-              subscriptionUpdatedAt: new Date().toISOString()
-            });
-          }
-        } else if (sub.status === 'expired' || sub.status === 'suspended' || sub.status === 'paused') {
-          // Suspensão por Inadimplência ou Cancelamento definitivo: revoga o acesso imediatamente
-          const usersRef = firestore.collection("users");
-          const snapshot = await usersRef.where("mpSubscriptionId", "==", String(subId)).get();
-          if (!snapshot.empty) {
-            const doc = snapshot.docs[0];
-            const data = doc.data();
-            if (data.isPremium === false && data.subscriptionStatus === sub.status) {
-              return res.status(200).send("OK: Idempotent - Already revoked");
-            }
-            await doc.ref.update({ 
-              isPremium: false, 
-              subscriptionStatus: sub.status,
-              cancelAtPeriodEnd: false,
-              subscriptionUpdatedAt: new Date().toISOString()
-            });
-            console.log(`[MP Webhook] Revoked premium for user ${doc.id} due to status: ${sub.status}`);
           }
         }
+      } catch (subErr) {
+        console.error("[MP Webhook] Error processing subscription event:", subErr);
       }
     }
 
     // 2. Pagamento Avulso / PIX (Payment)
-    if (isPaymentEvent) {
-      const paymentId = data?.id || req.body?.data?.id || req.query?.['data.id'] || req.query?.id;
-      if (paymentId) {
-        const paymentInstance = new Payment(client);
-        const paymentData = await paymentInstance.get({ id: Number(paymentId) });
-        
-        const userId = (paymentData.metadata as any)?.user_id || paymentData.external_reference;
-        if (userId) {
-          const userRef = firestore.collection("users").doc(userId);
-          const userDoc = await userRef.get();
-
-          if (userDoc.exists) {
-            const userData = userDoc.data();
-
+    if (isPaymentEvent || (!isSubscriptionEvent && (data?.id || req.body?.data?.id || req.query?.id))) {
+      try {
+        const paymentId = data?.id || req.body?.data?.id || req.query?.['data.id'] || req.query?.id;
+        if (paymentId) {
+          const paymentInstance = new Payment(client);
+          const paymentData = await paymentInstance.get({ id: Number(paymentId) });
+          
+          const userId = (paymentData.metadata as any)?.user_id || paymentData.external_reference || (paymentData.payer as any)?.email;
+          if (userId) {
             if (paymentData.status === 'approved') {
-              // Idempotency check: if this payment was already credited
-              if (userData?.lastProcessedPaymentId === String(paymentId) && userData?.isPremium === true) {
-                console.log(`[MP Webhook] Idempotent: Payment ${paymentId} already credited to user ${userId}. Skipping.`);
-                return res.status(200).send("OK: Idempotent - Payment already processed");
-              }
-
-              const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-
-              await userRef.update({
-                isPremium: true,
-                subscriptionType: 'pix_prepaid',
-                subscriptionStatus: 'active',
-                subscriptionPlan: (paymentData.metadata as any)?.plan_id || 'pix_30_days',
-                subscriptionExpiresAt: expiresAt,
-                lastProcessedPaymentId: String(paymentId),
-                cancelAtPeriodEnd: false,
-                subscriptionUpdatedAt: new Date().toISOString()
+              await activateUserPremium({
+                userId,
+                paymentId: String(paymentId),
+                type: 'pix_prepaid',
+                planId: (paymentData.metadata as any)?.plan_id || 'pix_30_days',
+                durationDays: 30
               });
-              console.log(`[MP Webhook] Granted 30-day PIX access to user ${userId} for payment ${paymentId}`);
             } else if (
               paymentData.status === 'refunded' || 
               paymentData.status === 'charged_back' || 
               paymentData.status === 'cancelled' ||
               paymentData.status === 'rejected'
             ) {
-              // Suspensão / estorno imediato
-              await userRef.update({
-                isPremium: false,
-                subscriptionStatus: paymentData.status,
-                subscriptionUpdatedAt: new Date().toISOString()
-              });
-              console.log(`[MP Webhook] Revoked premium for user ${userId} due to payment status: ${paymentData.status}`);
+              const userRef = firestore.collection("users").doc(userId);
+              const userDoc = await userRef.get();
+              if (userDoc.exists) {
+                await userRef.update({
+                  isPremium: false,
+                  subscriptionStatus: paymentData.status,
+                  subscriptionUpdatedAt: new Date().toISOString()
+                });
+                console.log(`[MP Webhook] Revoked premium for user ${userId} due to payment status: ${paymentData.status}`);
+              }
             }
           }
         }
+      } catch (payErr) {
+        console.error("[MP Webhook] Error processing payment event:", payErr);
       }
     }
 
