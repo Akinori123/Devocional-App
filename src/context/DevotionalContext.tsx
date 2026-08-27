@@ -145,6 +145,7 @@ export function DevotionalProvider({ children }: { children: ReactNode }) {
               ...currentThemeDates,
               [theme]: today
             };
+            updates.activeTheme = theme;
             // Also update local state so UI reacts immediately
             setThemeLastRead(updates.themeLastRead);
           }

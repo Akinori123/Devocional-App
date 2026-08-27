@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { BookOpen, PlayCircle, Bookmark, Flame, AlertCircle, Video, ChevronRight, ChevronLeft, Sun, Moon, Sunrise, Music, History, Flower2, Crown, Lock, X, Sprout, Trees, Sparkles } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { BookOpen, PlayCircle, Bookmark, Flame, AlertCircle, Video, ChevronRight, ChevronLeft, Sun, Moon, Sunrise, Music, History, Flower2, Crown, Lock, X, Sprout, Trees, Sparkles, CheckCircle2, RotateCcw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useDevotionals } from '../context/DevotionalContext';
 import { sendEmailVerification } from 'firebase/auth';
@@ -11,6 +11,14 @@ import { parseVerseReference } from '../utils/bibleParser';
 import { differenceInCalendarDays } from 'date-fns';
 import { useToast } from '../context/ToastContext';
 import { getJourneyStatus } from '../utils/journey';
+
+import { DevotionalItem } from '../data/devotionals';
+
+interface CarouselDevotionalItem extends DevotionalItem {
+  dayNumber: number;
+  isCompleted: boolean;
+  isAllCompleted?: boolean;
+}
 
 interface HomeProps {
   onChangeTab?: (tab: TabType, subTab?: 'diary' | 'verses' | 'subscription' | 'settings' | 'admin') => void;
@@ -147,12 +155,116 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
   }, []);
 
 
-  // Find next devotional
-  const unreadDevotionals = allDevotionals.filter(d => !readHistory.includes(d.id));
-  const readDevotionals = allDevotionals.filter(d => readHistory.includes(d.id));
-  
-  // Create a list for the carousel: next unread + recently read
-  const carouselItems = [...unreadDevotionals.slice(0, 3), ...readDevotionals.slice(0, 5)];
+  // Helper to sort devotionals within a theme sequentially
+  const sortThemeDevotionals = (theme: string) => {
+    return allDevotionals
+      .filter(d => d.theme === theme)
+      .sort((a, b) => {
+        if (a.createdAt && b.createdAt) {
+          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?.seconds * 1000 || 0);
+          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?.seconds * 1000 || 0);
+          if (timeA !== timeB) return timeA - timeB;
+        }
+        const numA = parseInt(a.id.replace(/\D/g, ''));
+        const numB = parseInt(b.id.replace(/\D/g, ''));
+        if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+          return numA - numB;
+        }
+        return a.id.localeCompare(b.id);
+      });
+  };
+
+  // Determine active theme based on user profile and read history
+  const activeTheme = useMemo(() => {
+    if (profile?.activeTheme && allDevotionals.some(d => d.theme === profile.activeTheme)) {
+      return profile.activeTheme;
+    }
+    if (profile?.themeLastRead && Object.keys(profile.themeLastRead).length > 0) {
+      const sortedThemes = Object.entries(profile.themeLastRead)
+        .sort((a, b) => b[1].localeCompare(a[1]))
+        .map(entry => entry[0]);
+      if (sortedThemes.length > 0 && allDevotionals.some(d => d.theme === sortedThemes[0])) {
+        return sortedThemes[0];
+      }
+    }
+    if (readHistory && readHistory.length > 0) {
+      for (let i = readHistory.length - 1; i >= 0; i--) {
+        const dev = allDevotionals.find(d => d.id === readHistory[i]);
+        if (dev?.theme) return dev.theme;
+      }
+    }
+    return null;
+  }, [profile?.activeTheme, profile?.themeLastRead, readHistory, allDevotionals]);
+
+  // Compute individual progress and carousel items
+  const { hasActiveJourney, carouselItems, activeThemeName } = useMemo(() => {
+    const hasStartedAny = readHistory.length > 0 || Boolean(profile?.activeTheme);
+
+    if (!activeTheme || !hasStartedAny) {
+      return {
+        hasActiveJourney: false,
+        carouselItems: [] as CarouselDevotionalItem[],
+        activeThemeName: ''
+      };
+    }
+
+    const themeDevs = sortThemeDevotionals(activeTheme);
+    if (themeDevs.length === 0) {
+      return {
+        hasActiveJourney: false,
+        carouselItems: [] as CarouselDevotionalItem[],
+        activeThemeName: ''
+      };
+    }
+
+    // Number each devotional sequentially in this journey
+    const themeDevsWithDay = themeDevs.map((d, index) => ({
+      ...d,
+      dayNumber: index + 1,
+      isCompleted: readHistory.includes(d.id)
+    }));
+
+    const unread = themeDevsWithDay.filter(d => !d.isCompleted);
+    const completed = themeDevsWithDay.filter(d => d.isCompleted);
+
+    let currentItem: (typeof themeDevsWithDay[0] & { isAllCompleted?: boolean }) | null = null;
+    if (unread.length > 0) {
+      // The current day the user is on (first unread in sequence)
+      currentItem = { ...unread[0], isAllCompleted: false };
+    } else if (completed.length > 0) {
+      // All days in this theme are completed
+      currentItem = { ...completed[completed.length - 1], isAllCompleted: true };
+    }
+
+    // Past completed days in this journey (in reverse order: e.g. Day 2, Day 1)
+    const pastInTheme: CarouselDevotionalItem[] = completed
+      .filter(d => d.id !== currentItem?.id)
+      .map(d => ({ ...d, isAllCompleted: false }))
+      .reverse();
+
+    // Additional completed devotionals from other themes
+    const otherCompleted: CarouselDevotionalItem[] = allDevotionals
+      .filter(d => d.theme !== activeTheme && readHistory.includes(d.id))
+      .map(d => {
+        const siblings = sortThemeDevotionals(d.theme);
+        const idx = siblings.findIndex(s => s.id === d.id);
+        return {
+          ...d,
+          dayNumber: idx !== -1 ? idx + 1 : 1,
+          isCompleted: true,
+          isAllCompleted: false
+        };
+      })
+      .reverse();
+
+    const items: CarouselDevotionalItem[] = currentItem ? [currentItem, ...pastInTheme, ...otherCompleted] : [];
+
+    return {
+      hasActiveJourney: items.length > 0,
+      carouselItems: items,
+      activeThemeName: activeTheme
+    };
+  }, [activeTheme, allDevotionals, readHistory, profile?.activeTheme]);
 
   const handleResendEmail = async () => {
     if (!user) return;
@@ -372,71 +484,167 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
           )}
         </section>
 
-        {/* Current Devotional (Carousel) */}
-        <section>
+        {/* Current Devotional (Carousel & Individual Progress) */}
+        <section id="tour-devocional-section">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-yellow-500" />
-              <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">📖 Devocionais</h2>
+              <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                📖 Devocionais {activeThemeName ? `• ${activeThemeName}` : ''}
+              </h2>
             </div>
-            <div className="hidden sm:flex items-center gap-1">
+            <div className="flex items-center gap-2">
               <button 
-                onClick={() => scrollCarousel('left')}
-                className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400 transition-colors"
-                title="Rolar para esquerda"
+                onClick={() => onChangeTab?.('journey')}
+                className="text-xs font-semibold text-yellow-600 hover:text-yellow-700 dark:text-yellow-500 dark:hover:text-yellow-400 transition-colors"
               >
-                <ChevronLeft className="w-4 h-4" />
+                {hasActiveJourney ? 'Trocar tema' : 'Ver temas'}
               </button>
-              <button 
-                onClick={() => scrollCarousel('right')}
-                className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400 transition-colors"
-                title="Rolar para direita"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-          <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-3 font-medium sm:hidden">Passe para o lado para ler mensagens anteriores ➡️</p>
-          
-          <div 
-            ref={carouselRef}
-            onMouseDown={handleMouseDown}
-            onMouseLeave={handleMouseLeave}
-            onMouseUp={handleMouseUp}
-            onMouseMove={handleMouseMove}
-            className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 -mx-5 px-5 snap-x cursor-grab active:cursor-grabbing relative z-0 scroll-smooth"
-          >
-            {carouselItems.map((devotional, index) => (
-              <div id={index === 0 ? "tour-devocional" : undefined} key={devotional.id} className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden flex flex-col shrink-0 w-[280px] snap-center transition-colors duration-200">
-                <div className="h-24 bg-yellow-50 dark:bg-yellow-900/10 flex items-center justify-center p-4 relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-yellow-100/50 to-orange-100/50 dark:from-yellow-900/30 dark:to-orange-900/30" />
-                  <div className="relative w-12 h-16 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-md shadow-sm flex items-center justify-center">
-                    <BookOpen className="text-yellow-400 w-6 h-6" />
-                  </div>
-                </div>
-                <div className="p-4 flex-1 flex flex-col justify-between">
-                  <div>
-                    <span className="text-[10px] font-bold tracking-wider text-yellow-500 mb-1 block uppercase">
-                      {index === 0 ? 'DEVOCIONAL DO DIA' : 'RELEITURA'}
-                    </span>
-                    <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-1 leading-tight line-clamp-1">{devotional.title}</h3>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mb-4">{devotional.description}</p>
-                  </div>
-                  
+              {hasActiveJourney && carouselItems.length > 1 && (
+                <div className="hidden sm:flex items-center gap-1 ml-1">
                   <button 
-                    onClick={() => {
-                      setActiveDevotional(devotional);
-                      onChangeTab?.('journey');
-                    }}
-                    className="flex items-center justify-center gap-2 bg-yellow-500 text-white py-2.5 px-4 rounded-xl text-sm font-medium hover:bg-yellow-700 active:scale-95 transition-all w-full"
+                    onClick={() => scrollCarousel('left')}
+                    className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400 transition-colors"
+                    title="Rolar para esquerda"
                   >
-                    <PlayCircle className="w-4 h-4" />
-                    Ler Mensagem
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button 
+                    onClick={() => scrollCarousel('right')}
+                    className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400 transition-colors"
+                    title="Rolar para direita"
+                  >
+                    <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
-              </div>
-            ))}
+              )}
+            </div>
           </div>
+
+          {!hasActiveJourney ? (
+            /* Empty State for new users */
+            <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-gray-100 dark:border-slate-700 text-center transition-colors">
+              <div className="w-12 h-12 bg-yellow-100 dark:bg-yellow-900/40 rounded-2xl flex items-center justify-center mx-auto mb-3 text-yellow-600 dark:text-yellow-400 shadow-xs">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <h3 className="font-serif font-bold text-gray-900 dark:text-white text-base sm:text-lg mb-1.5">
+                Inicie Sua Jornada Diária
+              </h3>
+              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto mb-5 leading-relaxed">
+                Você ainda não iniciou sua jornada diária. Escolha um tema e comece seu momento com Deus hoje!
+              </p>
+              <button
+                onClick={() => onChangeTab?.('journey')}
+                className="inline-flex items-center justify-center gap-2 bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white text-sm font-semibold py-2.5 px-6 rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>Escolher Tema & Começar</span>
+              </button>
+            </div>
+          ) : (
+            <>
+              {carouselItems.length > 1 && (
+                <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-3 font-medium sm:hidden">
+                  Passe para o lado para ver os dias já concluídos ➡️
+                </p>
+              )}
+              
+              <div 
+                ref={carouselRef}
+                onMouseDown={handleMouseDown}
+                onMouseLeave={handleMouseLeave}
+                onMouseUp={handleMouseUp}
+                onMouseMove={handleMouseMove}
+                className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 -mx-5 px-5 snap-x cursor-grab active:cursor-grabbing relative z-0 scroll-smooth"
+              >
+                {carouselItems.map((devotional, index) => {
+                  const isCurrent = index === 0;
+                  const isCompleted = devotional.isCompleted;
+                  
+                  return (
+                    <div 
+                      id={isCurrent ? "tour-devocional" : undefined} 
+                      key={`${devotional.id}-${index}`} 
+                      className={`bg-white dark:bg-slate-800 rounded-2xl shadow-sm border ${
+                        isCurrent 
+                          ? 'border-yellow-300/80 dark:border-yellow-600/40 ring-2 ring-yellow-400/20' 
+                          : 'border-gray-100 dark:border-slate-700'
+                      } overflow-hidden flex flex-col shrink-0 w-[280px] snap-center transition-colors duration-200`}
+                    >
+                      <div className={`h-24 ${
+                        isCurrent 
+                          ? 'bg-gradient-to-br from-yellow-100/70 to-amber-100/70 dark:from-yellow-950/40 dark:to-amber-900/30' 
+                          : 'bg-gray-50 dark:bg-slate-800/80'
+                      } flex items-center justify-center p-4 relative overflow-hidden`}>
+                        <div className="relative w-12 h-16 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-md shadow-sm flex items-center justify-center">
+                          {isCompleted && !isCurrent ? (
+                            <CheckCircle2 className="text-emerald-500 w-6 h-6" />
+                          ) : (
+                            <BookOpen className="text-yellow-500 w-6 h-6" />
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="p-4 flex-1 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center justify-between gap-1 mb-1.5">
+                            <span className={`text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-md uppercase ${
+                              isCurrent && !devotional.isAllCompleted
+                                ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-300'
+                                : devotional.isAllCompleted
+                                ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300'
+                                : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300'
+                            }`}>
+                              {isCurrent && !devotional.isAllCompleted
+                                ? `DIA ${devotional.dayNumber} • ATUAL`
+                                : devotional.isAllCompleted && isCurrent
+                                ? `DIA ${devotional.dayNumber} • CONCLUÍDO`
+                                : `DIA ${devotional.dayNumber} • LIDO`}
+                            </span>
+                            
+                            <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 truncate max-w-[100px]">
+                              {devotional.theme}
+                            </span>
+                          </div>
+                          
+                          <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-1 leading-tight line-clamp-1">
+                            {devotional.title}
+                          </h3>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mb-4">
+                            {devotional.description}
+                          </p>
+                        </div>
+                        
+                        <button 
+                          onClick={() => {
+                            setActiveDevotional(devotional);
+                            onChangeTab?.('journey');
+                          }}
+                          className={`flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-medium transition-all w-full active:scale-95 ${
+                            isCurrent
+                              ? 'bg-yellow-500 hover:bg-yellow-600 text-white shadow-xs'
+                              : 'bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-800 dark:text-gray-200'
+                          }`}
+                        >
+                          {isCurrent ? (
+                            <>
+                              <PlayCircle className="w-4 h-4" />
+                              <span>{devotional.isAllCompleted ? 'Revisar Mensagem' : 'Ler Mensagem'}</span>
+                            </>
+                          ) : (
+                            <>
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Reler Mensagem</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </section>
 
       </div>

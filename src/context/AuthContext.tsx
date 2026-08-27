@@ -25,6 +25,7 @@ export interface UserProfile {
   lastReadDate?: string;
   themeLastRead?: Record<string, string>;
   readHistory?: string[];
+  activeTheme?: string;
   bibleProgress?: Record<string, number[]>;
   lastReadReference?: BibleLastRead;
   subscriptionStatus?: 'free' | 'premium' | 'canceled';

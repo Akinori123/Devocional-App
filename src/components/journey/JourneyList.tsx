@@ -6,6 +6,8 @@ import { DevotionalItem } from '../../data/devotionals';
 import { TabType } from '../../types';
 import { format } from 'date-fns';
 import { getJourneyStatus } from '../../utils/journey';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 
 interface JourneyListProps {
   onSelectDevotional: (devotional: DevotionalItem, allRead: boolean) => void;
@@ -63,6 +65,10 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
     const firstUnreadIndex = themeDevotionals.findIndex(d => !readHistory.includes(d.id));
     
     const today = format(new Date(), 'yyyy-MM-dd');
+    
+    if (user) {
+      updateDoc(doc(db, 'users', user.uid), { activeTheme: theme }).catch(console.warn);
+    }
     
     if (firstUnreadIndex !== -1) {
       if (themeLastRead[theme] === today) {
