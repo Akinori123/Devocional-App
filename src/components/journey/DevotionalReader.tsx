@@ -158,6 +158,15 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
   const isAdmin = profile?.isAdmin === true || user?.email === 'dofekrafael@gmail.com' || user?.email === 'sjhonatan916@gmail.com' || user?.email === 'floresceremadoracao@gmail.com';
   const hasAccess = profile?.isPremium || isAdmin;
   
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const isToday = profile?.lastGenerationDate === todayStr;
+  const aiGenerationsUsed = isToday ? (profile?.aiGenerationsCount || 0) : 0;
+  const isPremiumUser = profile?.isPremium === true;
+  const maxAiGenerations = isAdmin ? 9999 : (isPremiumUser ? 10 : 1);
+  const remainingAiGenerations = Math.max(0, maxAiGenerations - aiGenerationsUsed);
+  const hasAiLimitReached = !isAdmin && aiGenerationsUsed >= maxAiGenerations;
+
+  const [showFreeLimitModal, setShowFreeLimitModal] = useState(false);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [showAILimitModal, setShowAILimitModal] = useState(false);
   const { fontSize, cycleFontSize } = useSettings();
@@ -317,10 +326,30 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
   const containerRef = useRef<HTMLDivElement>(null);
   const markedDevotionalIdRef = useRef<string>('');
 
+  const scrollToTop = () => {
+    try {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      document.documentElement?.scrollTo({ top: 0, behavior: 'smooth' });
+      document.body?.scrollTo({ top: 0, behavior: 'smooth' });
+      
+      if (containerRef.current) {
+        containerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+        if (containerRef.current.parentElement) {
+          containerRef.current.parentElement.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }
+    } catch (e) {
+      console.warn("Error scrolling to top:", e);
+    }
+  };
+
   useEffect(() => {
-    if (devotional?.id && markedDevotionalIdRef.current !== devotional.id) {
-      markedDevotionalIdRef.current = devotional.id;
-      markAsRead(devotional.id, devotional.theme);
+    if (devotional?.id) {
+      scrollToTop();
+      if (markedDevotionalIdRef.current !== devotional.id) {
+        markedDevotionalIdRef.current = devotional.id;
+        markAsRead(devotional.id, devotional.theme);
+      }
     }
   }, [devotional?.id, devotional?.theme, markAsRead]);
 
@@ -336,21 +365,19 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
   
 
   const handleGenerateAI = async () => {
-    if (!hasAccess) {
-      setShowPremiumModal(true);
-      return;
-    }
-
     const today = format(new Date(), 'yyyy-MM-dd');
+    const isTodayDate = profile?.lastGenerationDate === today;
+    const currentCount = isTodayDate ? (profile?.aiGenerationsCount || 0) : 0;
+    const isPremium = profile?.isPremium === true;
+    const maxAllowed = isAdmin ? 9999 : (isPremium ? 10 : 1);
 
-    // Check Fair Use Policy (max 10 generations/day for non-admin Premium users)
-    if (!isAdmin) {
-      const lastGenDate = profile?.lastGenerationDate;
-      const genCount = (lastGenDate === today) ? (profile?.aiGenerationsCount || 0) : 0;
-      if (genCount >= 10) {
+    if (!isAdmin && currentCount >= maxAllowed) {
+      if (!isPremium) {
+        setShowFreeLimitModal(true);
+      } else {
         setShowAILimitModal(true);
-        return;
       }
+      return;
     }
 
     try {
@@ -366,8 +393,6 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
 
       if (user) {
         try {
-          const lastGenDate = profile?.lastGenerationDate;
-          const currentCount = (lastGenDate === today) ? (profile?.aiGenerationsCount || 0) : 0;
           const userRef = doc(db, 'users', user.uid);
           await updateDoc(userRef, {
             aiGenerationsCount: currentCount + 1,
@@ -380,10 +405,15 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
 
       if (onGenerated) {
         onGenerated(newDevotional);
-        setTimeout(() => {
-          containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-        }, 100);
       }
+
+      // Rola a página suavemente para o topo para a leitura da nova palavra
+      setTimeout(() => {
+        scrollToTop();
+      }, 50);
+      setTimeout(() => {
+        scrollToTop();
+      }, 250);
     } catch (error: any) {
       toast.error(error.message || "Houve um erro ao tentar gerar seu devocional inédito. Tente novamente.");
     } finally {
@@ -621,7 +651,15 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
                     <span className="text-xs sm:text-sm md:text-base font-semibold whitespace-nowrap truncate">
                       Receber Nova Palavra
                     </span>
-                    {!hasAccess && (
+                    {!isAdmin && (
+                      <span className="text-[11px] font-medium bg-black/15 dark:bg-white/20 px-2 py-0.5 rounded-full whitespace-nowrap">
+                        {isPremiumUser 
+                          ? `${remainingAiGenerations}/10 hoje`
+                          : (remainingAiGenerations > 0 ? "1 grátis hoje" : "Limite 1/1 hoje")
+                        }
+                      </span>
+                    )}
+                    {!isPremiumUser && !isAdmin && remainingAiGenerations === 0 && (
                       <Crown className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 text-yellow-200 fill-yellow-200/40" />
                     )}
                   </>
@@ -790,9 +828,53 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
         </div>
       )}
 
-      {/* Premium Lock Modal */}
+      {/* Free Limit Reached Modal (1x/day) */}
+      {showFreeLimitModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-sm relative shadow-2xl text-center border border-yellow-100 dark:border-slate-800">
+            <button 
+              onClick={() => setShowFreeLimitModal(false)}
+              className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-full transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
 
+            <div className="w-14 h-14 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-500 rounded-2xl flex items-center justify-center mx-auto mb-4 mt-2">
+              <Crown className="w-7 h-7" />
+            </div>
 
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Limite Gratuito Atingido</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-6 leading-relaxed">
+              Você já usou sua <strong>1 reflexão diária gratuita</strong> com Inteligência Artificial hoje.<br /><br />
+              Deseja gerar até <strong>10 devocionais inéditos por dia</strong>? Assine o Florescer Premium!
+            </p>
+
+            <div className="w-full bg-yellow-50/80 dark:bg-yellow-950/30 rounded-xl p-3.5 border border-yellow-100 dark:border-yellow-900/50 mb-5">
+              <div className="text-2xl font-black text-gray-900 dark:text-white mb-0.5">R$ 1,00 <span className="text-xs font-normal text-gray-500 dark:text-gray-400">/ mês</span></div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Acesso a 10 gerações diárias e todo conteúdo exclusivo.</p>
+            </div>
+
+            <button
+              onClick={() => {
+                setShowFreeLimitModal(false);
+                if (onChangeTab) onChangeTab('profile', 'subscription');
+              }}
+              className="w-full bg-yellow-500 hover:bg-yellow-600 active:scale-[0.98] text-white font-bold py-3.5 px-4 rounded-xl transition-all shadow-sm text-sm mb-2"
+            >
+              Desbloquear 10 Gerações / Dia
+            </button>
+
+            <button
+              onClick={() => setShowFreeLimitModal(false)}
+              className="w-full text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 py-1.5 transition-colors"
+            >
+              Voltar amanhã para a cota gratuita
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Generic Premium Modal */}
       {showPremiumModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-sm relative shadow-2xl animate-in zoom-in-95 duration-200">
@@ -809,7 +891,7 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
               </div>
               <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Recurso Premium</h3>
               <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm">
-                A geração de devocionais inéditos com Inteligência Artificial é exclusiva para assinantes do Florescer Premium.
+                Desbloqueie criação de fundos mágicos, até 10 reflexões com IA diárias e vídeos exclusivos no Florescer Premium.
               </p>
               
               <div className="w-full bg-gray-50 dark:bg-slate-800 rounded-xl p-4 border border-gray-100 dark:border-slate-700 mb-6">
@@ -831,7 +913,7 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
         </div>
       )}
 
-      {/* AI Fair Use Limit Modal */}
+      {/* AI Fair Use Limit Modal (Premium 10x/day) */}
       {showAILimitModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-sm relative shadow-2xl text-center border border-yellow-100 dark:border-slate-800">
