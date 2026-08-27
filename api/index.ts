@@ -573,7 +573,11 @@ Retorne estritamente o JSON com as chaves title, beautifulWord e content.`;
     res.json(parsed);
   } catch (error: any) {
     console.error("Error generating devotional:", error);
-    res.status(500).json({ error: error.message || "Falha ao gerar devocional com IA" });
+    let msg = error?.message || "Falha ao gerar devocional com IA";
+    if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota")) {
+      msg = "Limite de requisições por minuto da chave Gemini atingido. Por favor, aguarde 30 a 60 segundos e tente novamente.";
+    }
+    res.status(500).json({ error: msg });
   }
 };
 
@@ -666,7 +670,11 @@ Mantenha o tom empático, pastoral, acolhedor e edificante em até 3 parágrafos
     return res.status(200).json(parsed);
   } catch (error: any) {
     console.error("Error in /api/gemini/explain-verse:", error);
-    return res.status(500).json({ error: error.message || "Falha ao consultar o Teólogo Particular com IA." });
+    let msg = error?.message || "Falha ao consultar o Teólogo Particular com IA.";
+    if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota")) {
+      msg = "Limite de requisições por minuto da chave Gemini atingido. Por favor, aguarde 30 a 60 segundos e tente novamente.";
+    }
+    return res.status(500).json({ error: msg });
   }
 };
 
@@ -741,7 +749,11 @@ app.post("/api/gemini/generate-bulk-devotionals", async (req, res) => {
     res.json(parsed);
   } catch (error: any) {
     console.error("Error generating bulk devotionals:", error);
-    res.status(500).json({ error: error.message || "Failed to generate bulk devotionals" });
+    let msg = error?.message || "Failed to generate bulk devotionals";
+    if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota")) {
+      msg = "Limite de requisições por minuto da chave Gemini atingido. Por favor, aguarde 30 a 60 segundos e tente novamente.";
+    }
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -753,19 +765,31 @@ app.post("/api/gemini/generate-image", async (req, res) => {
     if (!unsplashApiKey) {
       return res.status(500).json({ error: "Chave UNSPLASH_ACCESS_KEY não configurada." });
     }
-    let keywords = prompt;
-    if (geminiApiKey) {
-      try {
-        const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.7-flash', 
-          contents: `Extract 2 to 3 main visual keywords in English from this prompt for a photo search. Return ONLY the keywords separated by comma, no extra text. Prompt: "${prompt}"`
-        });
-        if (response.text) {
-          keywords = response.text.trim();
+    let keywords = prompt || 'nature,landscape,peaceful';
+    if (geminiApiKey && prompt) {
+      const modelsToTry = ['gemini-3.6-flash', 'gemini-3.1-flash-lite', 'gemini-3.7-flash', 'gemini-flash-latest'];
+      for (const model of modelsToTry) {
+        try {
+          const ai = new GoogleGenAI({ 
+            apiKey: geminiApiKey,
+            httpOptions: {
+              headers: {
+                'User-Agent': 'aistudio-build',
+              }
+            }
+          });
+          const response = await ai.models.generateContent({
+            model, 
+            contents: `Extract 2 to 3 main visual keywords in English from this prompt for a photo search. Return ONLY the keywords separated by comma, no extra text. Prompt: "${prompt}"`
+          });
+          if (response?.text) {
+            keywords = response.text.trim();
+            break;
+          }
+        } catch (e: any) {
+          // Silent fallback to next model or default keyword extraction
+          continue;
         }
-      } catch (e) {
-        console.warn("Could not translate prompt using Gemini", e);
       }
     }
     let unsplashUrl = `https://api.unsplash.com/photos/random?query=${encodeURIComponent(keywords)}&orientation=portrait&client_id=${unsplashApiKey}`;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { doc, getDoc, setDoc, collection, serverTimestamp, getDocs, query, orderBy, deleteDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, serverTimestamp, getDocs, query, orderBy, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { Loader2, Save, Video, Book, PlusCircle, Trash2, Edit2, X, Search, Download, Check, Sparkles, ChevronDown, ChevronRight, RefreshCw, Star, HelpCircle } from 'lucide-react';
 import { useDevotionals } from '../../context/DevotionalContext';
@@ -502,9 +502,12 @@ export function AdminTab() {
       let generatedDays: any[] = [];
       let bulkServerError = '';
 
-      // Tenta a chamada única em lote primeiro
+      // Tenta a chamada única em lote primeiro (1 única requisição à IA que consome apenas 1 cota de RPM)
       try {
-        setBulkProgress("Gerando os 7 dias com IA...");
+        setBulkProgress("Gerando os 7 dias com IA (isso pode levar 20 a 30 segundos)...");
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 50000);
+
         const response = await fetch('/api/gemini/generate-bulk-devotionals', {
           method: 'POST',
           headers,
@@ -512,7 +515,9 @@ export function AdminTab() {
             theme: finalThemeName,
             partNumber: nextPart
           }),
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
         
         if (response.ok) {
           const data = await response.json();
@@ -521,41 +526,49 @@ export function AdminTab() {
           }
         } else {
           const errorData = await response.json().catch(() => null);
-          bulkServerError = errorData?.error || `Erro de conexão (${response.status})`;
-          console.warn("generateBulk falhou no servidor, usando modo sequencial:", bulkServerError);
+          bulkServerError = errorData?.error || `Erro (${response.status})`;
+          console.warn("generateBulk falhou no servidor:", bulkServerError);
         }
       } catch (err: any) {
-        console.warn("Erro de rede no generateBulk, alternando para modo sequencial:", err);
+        console.warn("generateBulk timeout ou rede:", err);
       }
 
-      // Se a geração em lote de 1 clique falhou ou estourou timeout na Vercel (10s), gera dia a dia
+      // Se a geração em lote de 1 clique falhou, gera os 7 dias sequencialmente respeitando o limite da cota gratuita
       if (generatedDays.length !== 7) {
+        setBulkProgress("Geração sequencial dos 7 dias em andamento...");
         generatedDays = [];
+
         for (let i = 1; i <= 7; i++) {
           setBulkProgress(`Gerando Dia ${i} de 7 com IA...`);
-          const response = await fetch('/api/gemini/generate-devotional', {
+          const res = await fetch('/api/gemini/generate-devotional', {
             method: 'POST',
             headers,
             body: JSON.stringify({ 
               theme: `${finalThemeName} - Dia ${i} de 7`,
-              currentNeed: `Módulo de 7 dias sobre ${finalThemeName}. Volume ${nextPart}. Nao repita o básico.`
+              currentNeed: `Módulo de 7 dias sobre ${finalThemeName}. Volume ${nextPart}. Foque no aspecto do dia ${i}.`
             }),
           });
 
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => null);
-            const msg = errorData?.error || bulkServerError || `Erro ao gerar Dia ${i}. Verifique se a chave GEMINI_API_KEY está cadastrada na Vercel.`;
-            throw new Error(msg);
+          if (!res.ok) {
+            const errorData = await res.json().catch(() => null);
+            throw new Error(errorData?.error || bulkServerError || `Erro ao gerar Dia ${i}`);
           }
 
-          const dayData = await response.json();
+          const dayData = await res.json();
           generatedDays.push(dayData);
+
+          // Pausa leve para evitar 429 Rate Limit (Free Tier) entre requisições
+          if (i < 7) {
+            await new Promise(r => setTimeout(r, 1200));
+          }
         }
       }
       
-      // Salva os 7 dias no Firestore
-      setBulkProgress("Salvando módulo no banco de dados...");
+      // Salva os 7 dias no Firestore em lote atômico (writeBatch)
+      setBulkProgress("Salvando os 7 dias no banco de dados...");
       const dayOffset = existingDaysCount;
+      const batch = writeBatch(db);
+
       for (let i = 0; i < generatedDays.length; i++) {
         const dayNumber = dayOffset + i + 1;
         const day = generatedDays[i];
@@ -566,7 +579,7 @@ export function AdminTab() {
           title = `Dia ${dayNumber} - ${title}`;
         }
         
-        await setDoc(devRef, {
+        batch.set(devRef, {
           id: devRef.id,
           theme: finalThemeName,
           title: title,
@@ -576,13 +589,15 @@ export function AdminTab() {
           createdAt: serverTimestamp()
         });
       }
+
+      await batch.commit();
       
       toast.success(`Módulo "${finalThemeName}" com 7 dias gerado e salvo com sucesso!`);
       setShowBulkModal(false);
       setBulkTheme('');
     } catch (error: any) {
       console.error(error);
-      toast.error(error.message || "Erro ao gerar módulo em lote.");
+      toast.error(error.message || "Erro ao gerar módulo em lote. Verifique sua conexão e tente novamente.");
     } finally {
       setGeneratingBulk(false);
       setBulkProgress('');

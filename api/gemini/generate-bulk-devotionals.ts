@@ -97,6 +97,10 @@ export default async function handler(req: Request, res: Response) {
     return res.status(200).json(parsed);
   } catch (error: any) {
     console.error("Error generating bulk devotionals:", error);
-    return res.status(500).json({ error: error.message || "Failed to generate bulk devotionals" });
+    let msg = error?.message || "Failed to generate bulk devotionals";
+    if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota")) {
+      msg = "Limite de requisições por minuto da chave Gemini atingido. Por favor, aguarde 30 a 60 segundos e tente novamente.";
+    }
+    return res.status(500).json({ error: msg });
   }
 }

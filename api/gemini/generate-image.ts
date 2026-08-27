@@ -30,17 +30,29 @@ export default async function handler(req: Request, res: Response) {
 
     let keywords = prompt || 'nature,landscape,peaceful';
     if (geminiApiKey && prompt) {
-      try {
-        const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.7-flash', 
-          contents: `Extract 2 to 3 main visual keywords in English from this prompt for a photo search. Return ONLY the keywords separated by comma, no extra text. Prompt: "${prompt}"`
-        });
-        if (response.text) {
-          keywords = response.text.trim();
+      const modelsToTry = ['gemini-3.6-flash', 'gemini-3.1-flash-lite', 'gemini-3.7-flash', 'gemini-flash-latest'];
+      for (const model of modelsToTry) {
+        try {
+          const ai = new GoogleGenAI({ 
+            apiKey: geminiApiKey,
+            httpOptions: {
+              headers: {
+                'User-Agent': 'aistudio-build',
+              }
+            }
+          });
+          const response = await ai.models.generateContent({
+            model, 
+            contents: `Extract 2 to 3 main visual keywords in English from this prompt for a photo search. Return ONLY the keywords separated by comma, no extra text. Prompt: "${prompt}"`
+          });
+          if (response?.text) {
+            keywords = response.text.trim();
+            break;
+          }
+        } catch (e: any) {
+          // Silent fallback to next model or default keyword extraction
+          continue;
         }
-      } catch (e) {
-        console.warn("Could not translate prompt using Gemini", e);
       }
     }
 

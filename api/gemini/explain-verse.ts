@@ -105,6 +105,10 @@ Mantenha o tom empático, pastoral, acolhedor e edificante em até 3 parágrafos
     return res.status(200).json(parsed);
   } catch (error: any) {
     console.error("Error in /api/gemini/explain-verse:", error);
-    return res.status(500).json({ error: error.message || "Falha ao consultar o Teólogo Particular com IA." });
+    let msg = error?.message || "Falha ao consultar o Teólogo Particular com IA.";
+    if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota")) {
+      msg = "Limite de requisições por minuto da chave Gemini atingido. Por favor, aguarde 30 a 60 segundos e tente novamente.";
+    }
+    return res.status(500).json({ error: msg });
   }
 }

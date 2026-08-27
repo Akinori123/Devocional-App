@@ -108,6 +108,10 @@ Retorne estritamente o JSON com as chaves title, beautifulWord e content.`;
     return res.status(200).json(parsed);
   } catch (error: any) {
     console.error("Error in /api/gemini/generate-devotional:", error);
-    return res.status(500).json({ error: error.message || "Falha ao gerar devocional com IA" });
+    let msg = error?.message || "Falha ao gerar devocional com IA";
+    if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota")) {
+      msg = "Limite de requisições por minuto da chave Gemini atingido. Por favor, aguarde 30 a 60 segundos e tente novamente.";
+    }
+    return res.status(500).json({ error: msg });
   }
 }
