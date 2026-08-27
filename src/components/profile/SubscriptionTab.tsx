@@ -44,6 +44,7 @@ export function SubscriptionTab() {
   
   const isCanceled = profile?.cancelAtPeriodEnd === true || profile?.subscriptionStatus === 'canceled';
   const isPixPrepaid = profile?.subscriptionType === 'pix_prepaid';
+  const isAdminGrant = profile?.subscriptionType === 'admin_grant' || (isPremium && !isPixPrepaid && !profile?.mpSubscriptionId && !profile?.subscriptionExpiresAt);
 
   // Format expiration date
   const getFormattedExpiration = () => {
@@ -256,26 +257,42 @@ export function SubscriptionTab() {
                 <div>
                   <h3 className="text-xl font-black text-white tracking-wide">Área VIP Florescer</h3>
                   <p className="text-xs font-bold text-yellow-400/90 tracking-wider uppercase">
-                    {isPixPrepaid ? 'Passe de 30 Dias (PIX)' : 'Assinatura no Cartão'}
+                    {isAdminGrant 
+                      ? 'Acesso VIP Cortesia' 
+                      : isPixPrepaid 
+                        ? 'Passe de 30 Dias (PIX)' 
+                        : 'Assinatura no Cartão'}
                   </p>
                 </div>
               </div>
               
               <div className={`px-3 py-1 rounded-full border text-[11px] font-bold uppercase tracking-widest backdrop-blur-md shadow-sm ${
-                isCanceled 
-                  ? 'bg-orange-950/60 border-orange-500/40 text-orange-300' 
-                  : isPixPrepaid 
-                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300' 
-                    : 'bg-yellow-950/60 border-yellow-500/40 text-yellow-300'
+                isAdminGrant
+                  ? 'bg-purple-950/60 border-purple-500/40 text-purple-300'
+                  : isCanceled 
+                    ? 'bg-orange-950/60 border-orange-500/40 text-orange-300' 
+                    : isPixPrepaid 
+                      ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300' 
+                      : 'bg-yellow-950/60 border-yellow-500/40 text-yellow-300'
               }`}>
-                {isCanceled ? 'Renovação Desativada' : isPixPrepaid ? 'Passe Ativo' : 'Assinatura Ativa'}
+                {isAdminGrant 
+                  ? 'Concedido pelo Admin' 
+                  : isCanceled 
+                    ? 'Renovação Desativada' 
+                    : isPixPrepaid 
+                      ? 'Passe Ativo' 
+                      : 'Assinatura Ativa'}
               </div>
             </div>
 
             {/* Cartão de Status do Acesso */}
             <div className="bg-white/5 border border-white/10 rounded-2xl p-4 sm:p-5 mb-6 backdrop-blur-sm">
               <div className="flex items-start gap-3">
-                {isPixPrepaid ? (
+                {isAdminGrant ? (
+                  <div className="p-2 rounded-xl bg-purple-500/20 text-purple-300 shrink-0 mt-0.5">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                ) : isPixPrepaid ? (
                   <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-300 shrink-0 mt-0.5">
                     <Clock className="w-5 h-5" />
                   </div>
@@ -287,11 +304,13 @@ export function SubscriptionTab() {
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-white font-bold">
-                      {isPixPrepaid 
-                        ? 'Seu Passe de 30 Dias via PIX' 
-                        : isCanceled 
-                          ? 'Acesso válido até o término do ciclo' 
-                          : 'Assinatura Recorrente no Cartão'}
+                      {isAdminGrant
+                        ? 'Acesso VIP Integral Liberado'
+                        : isPixPrepaid 
+                          ? 'Seu Passe de 30 Dias via PIX' 
+                          : isCanceled 
+                            ? 'Acesso válido até o término do ciclo' 
+                            : 'Assinatura Recorrente no Cartão'}
                     </p>
                     {isPixPrepaid && remainingDays !== null && (
                       <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
@@ -301,7 +320,11 @@ export function SubscriptionTab() {
                   </div>
                   
                   <p className="text-xs text-gray-300 mt-1.5 leading-relaxed">
-                    {isPixPrepaid ? (
+                    {isAdminGrant ? (
+                      <>
+                        Sua conta recebeu acesso VIP integral concedido pela administração. Você desfruta de todos os benefícios exclusivos de forma permanente e sem nenhuma cobrança vinculada.
+                      </>
+                    ) : isPixPrepaid ? (
                       <>
                         Válido até <strong>{getFormattedExpiration()}</strong>. Este passe não possui cobranças automáticas e encerrará sozinho ao término do prazo.
                       </>
@@ -350,7 +373,7 @@ export function SubscriptionTab() {
             </div>
 
             {/* Botão de Cancelar Assinatura (Apenas para quem paga via Cartão e está ativo) */}
-            {!isPixPrepaid && !isCanceled && (
+            {!isAdminGrant && !isPixPrepaid && !isCanceled && (
               <button 
                 id="btn-open-cancel-subscription"
                 onClick={() => setShowCancelModal(true)}

@@ -4,7 +4,27 @@ import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { TabType } from '../types';
 import { useToast } from '../context/ToastContext';
-import { ShieldAlert, Search, Loader2, Star, Trash2, RefreshCw, X, ShieldOff, UserX, UserCheck, Users, PlaySquare } from 'lucide-react';
+import { 
+  ShieldAlert, 
+  Search, 
+  Loader2, 
+  Star, 
+  Trash2, 
+  RefreshCw, 
+  X, 
+  ShieldOff, 
+  UserX, 
+  UserCheck, 
+  Users, 
+  PlaySquare, 
+  QrCode, 
+  CreditCard, 
+  Sparkles, 
+  Crown, 
+  Clock, 
+  CheckCircle2,
+  ExternalLink
+} from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { AdminTab } from '../components/profile/AdminTab';
@@ -22,6 +42,9 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
   const [userToSuspend, setUserToSuspend] = useState<any>(null);
   const [userToSoftDelete, setUserToSoftDelete] = useState<any>(null);
   const [userToHardDelete, setUserToHardDelete] = useState<any>(null);
+  const [userToManageVip, setUserToManageVip] = useState<any>(null);
+  const [cardSubscriptionIdInput, setCardSubscriptionIdInput] = useState('');
+  const [savingVip, setSavingVip] = useState(false);
   const [currentView, setCurrentView] = useState<'active' | 'trash'>('active');
   const [mainTab, setMainTab] = useState<'users' | 'content'>('users');
   const toast = useToast();
@@ -59,27 +82,150 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
       u?.email === 'floresceremadoracao@gmail.com';
   };
 
-  const togglePremium = async (targetUser: any) => {
+  // 1. Adicionar / Renovar +30 Dias (PIX / Suporte Pré-pago)
+  const handleAdd30DaysPix = async (targetUser: any) => {
     if (isUserAdmin(targetUser)) {
-      toast.error('Ação Bloqueada: Contas de Administrador possuem imunidade e privilégios permanentes.');
+      toast.error('Contas de Administrador já possuem acesso vitalício permanente.');
       return;
     }
+    setSavingVip(true);
     try {
-      const isCurrentlyPremium = targetUser.isPremium === true;
+      // Se já tem data futura, estende a partir dela; senão, a partir de agora
+      const now = Date.now();
+      let baseTime = now;
+      if (targetUser.subscriptionExpiresAt) {
+        const existingExpires = new Date(targetUser.subscriptionExpiresAt).getTime();
+        if (existingExpires > now) {
+          baseTime = existingExpires;
+        }
+      }
+      const newExpiresAt = new Date(baseTime + 30 * 24 * 60 * 60 * 1000).toISOString();
+
       const userRef = doc(db, 'users', targetUser.id);
-      await updateDoc(userRef, {
-        isPremium: !isCurrentlyPremium,
-        subscriptionStatus: !isCurrentlyPremium ? 'premium' : 'free',
-        subscriptionDate: !isCurrentlyPremium ? format(new Date(), 'yyyy-MM-dd') : null
-      });
-      toast.success(`Usuário ${!isCurrentlyPremium ? 'promovido a Premium' : 'rebaixado a Free'}.`);
-      setUsers(users.map(u => u.id === targetUser.id ? {
-        ...u,
-        isPremium: !isCurrentlyPremium,
-        subscriptionStatus: !isCurrentlyPremium ? 'premium' : 'free',
-      } : u));
+      const updatedData = {
+        isPremium: true,
+        subscriptionType: 'pix_prepaid',
+        subscriptionStatus: 'active',
+        subscriptionPlan: 'pix_30_days',
+        subscriptionExpiresAt: newExpiresAt,
+        cancelAtPeriodEnd: false,
+        subscriptionUpdatedAt: new Date().toISOString()
+      };
+
+      await updateDoc(userRef, updatedData);
+      toast.success(`+30 Dias adicionados com sucesso! Válido até ${newExpiresAt.slice(0, 10)}.`);
+      
+      setUsers(users.map(u => u.id === targetUser.id ? { ...u, ...updatedData } : u));
+      setUserToManageVip(null);
     } catch (err) {
-      toast.error('Erro ao atualizar status do usuário.');
+      console.error(err);
+      toast.error('Erro ao adicionar 30 dias de acesso.');
+    } finally {
+      setSavingVip(false);
+    }
+  };
+
+  // 2. Sincronizar Assinatura de Cartão (Mercado Pago)
+  const handleLinkCardSubscription = async (targetUser: any) => {
+    if (isUserAdmin(targetUser)) {
+      toast.error('Contas de Administrador já possuem acesso vitalício permanente.');
+      return;
+    }
+    const trimmedId = cardSubscriptionIdInput.trim();
+    if (!trimmedId) {
+      toast.error('Informe o ID da assinatura do Mercado Pago.');
+      return;
+    }
+
+    setSavingVip(true);
+    try {
+      const expiresAt = new Date(Date.now() + 31 * 24 * 60 * 60 * 1000).toISOString();
+      const userRef = doc(db, 'users', targetUser.id);
+      const updatedData = {
+        isPremium: true,
+        subscriptionType: 'credit_card_recurring',
+        mpSubscriptionId: trimmedId,
+        subscriptionStatus: 'authorized',
+        subscriptionPlan: 'monthly_card',
+        subscriptionExpiresAt: expiresAt,
+        cancelAtPeriodEnd: false,
+        subscriptionUpdatedAt: new Date().toISOString()
+      };
+
+      await updateDoc(userRef, updatedData);
+      toast.success('Assinatura de cartão sincronizada com sucesso no cadastro do usuário!');
+      
+      setUsers(users.map(u => u.id === targetUser.id ? { ...u, ...updatedData } : u));
+      setUserToManageVip(null);
+      setCardSubscriptionIdInput('');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao vincular assinatura de cartão.');
+    } finally {
+      setSavingVip(false);
+    }
+  };
+
+  // 3. Conceder VIP Cortesia / Vitalício (Admin Grant)
+  const handleGrantAdminCourtesy = async (targetUser: any) => {
+    if (isUserAdmin(targetUser)) {
+      toast.error('Contas de Administrador já possuem acesso vitalício permanente.');
+      return;
+    }
+    setSavingVip(true);
+    try {
+      const userRef = doc(db, 'users', targetUser.id);
+      const updatedData = {
+        isPremium: true,
+        subscriptionType: 'admin_grant',
+        subscriptionStatus: 'active',
+        subscriptionPlan: 'admin_courtesy',
+        subscriptionExpiresAt: null,
+        cancelAtPeriodEnd: false,
+        subscriptionUpdatedAt: new Date().toISOString()
+      };
+
+      await updateDoc(userRef, updatedData);
+      toast.success('Acesso VIP Cortesia Vitalício concedido com sucesso!');
+      
+      setUsers(users.map(u => u.id === targetUser.id ? { ...u, ...updatedData } : u));
+      setUserToManageVip(null);
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao conceder acesso cortesia.');
+    } finally {
+      setSavingVip(false);
+    }
+  };
+
+  // 4. Revogar Acesso VIP (Voltar para Free)
+  const handleRevokeVip = async (targetUser: any) => {
+    if (isUserAdmin(targetUser)) {
+      toast.error('Ação Bloqueada: Contas de Administrador possuem imunidade.');
+      return;
+    }
+    setSavingVip(true);
+    try {
+      const userRef = doc(db, 'users', targetUser.id);
+      const updatedData = {
+        isPremium: false,
+        subscriptionType: null,
+        subscriptionStatus: 'free',
+        subscriptionExpiresAt: null,
+        cancelAtPeriodEnd: false,
+        subscriptionUpdatedAt: new Date().toISOString()
+      };
+
+      await updateDoc(userRef, updatedData);
+      toast.success('Acesso VIP revogado. Usuário retornado ao plano Free.');
+      
+      setUsers(users.map(u => u.id === targetUser.id ? { ...u, ...updatedData } : u));
+      setUserToManageVip(null);
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao revogar status VIP.');
+    } finally {
+      setSavingVip(false);
     }
   };
 
@@ -312,13 +458,21 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
                     <div className={cn(
                       "px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider",
                       u.isPremium 
-                        ? (u.subscriptionType === 'pix_prepaid'
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                            : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400")
+                        ? (u.subscriptionType === 'admin_grant'
+                            ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
+                            : u.subscriptionType === 'pix_prepaid'
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                              : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400")
                         : "bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-gray-300"
                     )}>
                       {u.isPremium 
-                        ? (u.subscriptionType === 'pix_prepaid' ? 'PIX (30 Dias)' : 'Cartão Recorrente') 
+                        ? (u.subscriptionType === 'admin_grant'
+                            ? 'VIP Cortesia'
+                            : u.subscriptionType === 'pix_prepaid' 
+                              ? 'PIX (30 Dias)' 
+                              : u.subscriptionType === 'credit_card_recurring'
+                                ? 'Cartão Recorrente'
+                                : 'VIP Ativo') 
                         : 'Free'}
                     </div>
                   </div>
@@ -327,6 +481,14 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
               
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-4 space-y-1">
                 <p>ID: <span className="font-mono">{u.id}</span></p>
+                {u.subscriptionType && (
+                  <p>Tipo: <span className="font-semibold text-gray-700 dark:text-gray-300">
+                    {u.subscriptionType === 'admin_grant' ? 'Cortesia Administrativa (Vitalício)' : u.subscriptionType === 'pix_prepaid' ? 'Passe de 30 Dias (PIX)' : 'Recorrente no Cartão'}
+                  </span></p>
+                )}
+                {u.mpSubscriptionId && (
+                  <p>ID MP: <span className="font-mono text-gray-700 dark:text-gray-300">{u.mpSubscriptionId}</span></p>
+                )}
                 {u.subscriptionExpiresAt && (
                   <p>Validade: <span className="font-medium text-gray-700 dark:text-gray-300">{u.subscriptionExpiresAt.slice(0, 10)}</span></p>
                 )}
@@ -337,17 +499,21 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
                 {currentView === 'active' ? (
                   <>
                     <button
-                      onClick={() => togglePremium(u)}
+                      id={`btn-manage-vip-${u.id}`}
+                      onClick={() => {
+                        setUserToManageVip(u);
+                        setCardSubscriptionIdInput(u.mpSubscriptionId || '');
+                      }}
                       disabled={isTargetAdmin}
                       className={cn(
                         "flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
                         u.isPremium 
-                          ? "bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-gray-200"
+                          ? "bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 dark:text-amber-300"
                           : "bg-yellow-100 hover:bg-yellow-200 text-yellow-700 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50 dark:text-yellow-400"
                       )}
                     >
-                      {u.isPremium ? <ShieldOff className="w-4 h-4" /> : <Star className="w-4 h-4" />}
-                      {u.isPremium ? 'Revogar Premium' : 'Tornar Premium'}
+                      <Crown className="w-4 h-4 text-amber-500" />
+                      {u.isPremium ? 'Gerenciar VIP' : 'Conceder VIP'}
                     </button>
 
                     <button
@@ -405,6 +571,170 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
         </>
         )}
       </div>
+
+      {/* Modal de Gestão VIP Avançada */}
+      {userToManageVip && (
+        <div 
+          id="vip-management-modal-overlay"
+          className="fixed inset-0 bg-black/75 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 backdrop-blur-sm animate-in fade-in duration-200"
+        >
+          <div 
+            id="vip-management-modal-card"
+            className="bg-white dark:bg-slate-900 border-t sm:border border-gray-200 dark:border-slate-800 rounded-t-3xl sm:rounded-3xl w-full max-w-lg max-h-[90vh] sm:max-h-[85vh] shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-200 text-gray-900 dark:text-white"
+          >
+            {/* Header fixo */}
+            <div className="flex items-center justify-between p-4 sm:p-5 pb-3 border-b border-gray-100 dark:border-slate-800 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-amber-500/10 text-amber-500 dark:bg-amber-400/10 dark:text-amber-400 border border-amber-500/20">
+                  <Crown className="w-5 h-5 sm:w-6 sm:h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base sm:text-lg leading-tight">Gerenciamento VIP</h3>
+                  <p className="text-[11px] sm:text-xs text-gray-500 dark:text-gray-400 font-medium">
+                    {userToManageVip.name || 'Sem Nome'} • <span className="font-mono">{userToManageVip.email}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setUserToManageVip(null)}
+                className="p-2 rounded-xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Conteúdo rolável com scroll suave no celular */}
+            <div className="overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4 flex-1">
+              {/* Status Atual */}
+              <div className="bg-gray-50 dark:bg-slate-800/60 rounded-2xl p-3.5 sm:p-4 border border-gray-100 dark:border-slate-700/50">
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-gray-500 dark:text-gray-400 font-semibold">Status Atual:</span>
+                  <span className={cn(
+                    "font-bold px-2.5 py-0.5 rounded-full text-[11px]",
+                    userToManageVip.isPremium 
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                      : "bg-gray-200 text-gray-700 dark:bg-slate-700 dark:text-gray-300"
+                  )}>
+                    {userToManageVip.isPremium ? 'VIP Ativo' : 'Plano Gratuito'}
+                  </span>
+                </div>
+                {userToManageVip.subscriptionExpiresAt && (
+                  <div className="flex items-center justify-between text-xs mt-1.5 text-gray-600 dark:text-gray-300">
+                    <span>Validade Atual:</span>
+                    <span className="font-mono font-medium">{userToManageVip.subscriptionExpiresAt.slice(0, 10)}</span>
+                  </div>
+                )}
+                {userToManageVip.mpSubscriptionId && (
+                  <div className="flex items-center justify-between text-xs mt-1.5 text-gray-600 dark:text-gray-300">
+                    <span>ID Assinatura Mercado Pago:</span>
+                    <span className="font-mono font-medium text-[11px]">{userToManageVip.mpSubscriptionId}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Opções de Concessão VIP */}
+              <div className="space-y-3">
+                {/* Opção 1: +30 Dias PIX */}
+                <div className="p-4 rounded-2xl border border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/20 transition-all hover:border-emerald-500/40">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5">
+                      <Clock className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-bold text-gray-900 dark:text-white">Adicionar +30 Dias (PIX / Suporte)</h4>
+                      <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5 leading-relaxed">
+                        Soma 30 dias de acesso pré-pago sem renovação automática. Ideal para quem pagou via PIX ou recebeu dias de suporte.
+                      </p>
+                      <button
+                        id="btn-add-30days-admin"
+                        disabled={savingVip}
+                        onClick={() => handleAdd30DaysPix(userToManageVip)}
+                        className="mt-3 w-full sm:w-auto py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+                      >
+                        {savingVip ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
+                        <span>Conceder / Renovar +30 Dias</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Opção 2: Sincronizar Cartão Mercado Pago */}
+                <div className="p-4 rounded-2xl border border-amber-500/20 bg-amber-50/50 dark:bg-amber-950/20 transition-all hover:border-amber-500/40">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5">
+                      <CreditCard className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-bold text-gray-900 dark:text-white">Vincular Assinatura no Cartão (Mercado Pago)</h4>
+                      <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5 leading-relaxed">
+                        Cole o ID da assinatura do Mercado Pago (ex: <code className="font-mono bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">2c938084...</code>) para que o sistema reconheça a recorrência automática.
+                      </p>
+                      
+                      <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          placeholder="Cole o ID da Assinatura (Preapproval ID)"
+                          value={cardSubscriptionIdInput}
+                          onChange={(e) => setCardSubscriptionIdInput(e.target.value)}
+                          className="flex-1 px-3 py-2 text-xs bg-white dark:bg-slate-800 border border-amber-500/30 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none text-gray-900 dark:text-white font-mono"
+                        />
+                        <button
+                          id="btn-sync-card-subscription"
+                          disabled={savingVip || !cardSubscriptionIdInput.trim()}
+                          onClick={() => handleLinkCardSubscription(userToManageVip)}
+                          className="py-2.5 px-4 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50 shrink-0"
+                        >
+                          {savingVip ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                          <span>Sincronizar</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Opção 3: VIP Cortesia Vitalício */}
+                <div className="p-4 rounded-2xl border border-purple-500/20 bg-purple-50/50 dark:bg-purple-950/20 transition-all hover:border-purple-500/40">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-purple-500/20 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5">
+                      <Sparkles className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-bold text-gray-900 dark:text-white">Conceder VIP Vitalício (Cortesia)</h4>
+                      <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5 leading-relaxed">
+                        Acesso permanente sem data de expiração e sem cobrança vinculada. O usuário terá todos os benefícios VIP livres.
+                      </p>
+                      <button
+                        id="btn-grant-vip-courtesy"
+                        disabled={savingVip}
+                        onClick={() => handleGrantAdminCourtesy(userToManageVip)}
+                        className="mt-3 w-full sm:w-auto py-2.5 px-4 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+                      >
+                        {savingVip ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crown className="w-3.5 h-3.5" />}
+                        <span>Conceder VIP Vitalício</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Opção 4: Revogar VIP */}
+                {userToManageVip.isPremium && (
+                  <div className="pt-2">
+                    <button
+                      id="btn-revoke-vip-user"
+                      disabled={savingVip}
+                      onClick={() => handleRevokeVip(userToManageVip)}
+                      className="w-full py-2.5 px-4 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+                    >
+                      {savingVip ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldOff className="w-3.5 h-3.5" />}
+                      <span>Revogar VIP (Tornar Usuário Gratuito)</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Suspend Modal */}
       {userToSuspend && (
