@@ -605,20 +605,25 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
                 Gere uma reflexão inédita sobre este tema, criada por IA especialmente para o seu momento.
               </p>
               <button 
+                id="btn-generate-ai-devotional"
                 onClick={handleGenerateAI}
                 disabled={isGenerating}
-                className="w-full bg-yellow-500 hover:bg-yellow-700 text-white font-medium py-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-80 disabled:cursor-not-allowed"
+                className="w-full bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white font-medium px-4 py-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-80 disabled:cursor-not-allowed shadow-sm"
               >
                 {isGenerating ? (
                   <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Buscando uma palavra para você...
+                    <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin shrink-0" />
+                    <span className="text-xs sm:text-sm font-medium whitespace-nowrap">Buscando palavra...</span>
                   </>
                 ) : (
                   <>
-                    <Sparkles className="w-4 h-4" />
-                    ✨ Receber a Palavra de Hoje
-                    {!hasAccess && <Crown className="w-4 h-4 ml-1" />}
+                    <Sparkles className="w-4 h-4 shrink-0 text-yellow-100" />
+                    <span className="text-xs sm:text-sm md:text-base font-semibold whitespace-nowrap truncate">
+                      Receber Nova Palavra
+                    </span>
+                    {!hasAccess && (
+                      <Crown className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 text-yellow-200 fill-yellow-200/40" />
+                    )}
                   </>
                 )}
               </button>
