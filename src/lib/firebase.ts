@@ -1,5 +1,10 @@
-import { initializeApp } from 'firebase/app';
-import { initializeFirestore } from 'firebase/firestore';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager,
+  getFirestore
+} from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getMessaging, isSupported } from 'firebase/messaging';
 
@@ -13,10 +18,23 @@ const firebaseConfig = {
   measurementId: "G-ZYVY151QSP"
 };
 
-const app = initializeApp(firebaseConfig);
-export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true
-});
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+
+let firestoreDb;
+try {
+  firestoreDb = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    }),
+    experimentalForceLongPolling: true
+  });
+} catch (e) {
+  // If already initialized or persistent cache unavailable, fallback to getFirestore
+  console.warn("Firestore initialization fallback:", e);
+  firestoreDb = getFirestore(app);
+}
+
+export const db = firestoreDb;
 export const auth = getAuth(app);
 
 export const getMessagingInstance = async () => {

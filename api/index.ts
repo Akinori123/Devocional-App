@@ -7,7 +7,6 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 import { MercadoPagoConfig, Preference, PreApproval, Payment } from 'mercadopago';
-import dailyPushHandler from './cron/daily-push';
 
 dotenv.config();
 
@@ -691,7 +690,5 @@ app.post("/api/gemini/generate-image", async (req, res) => {
     res.status(500).json({ error: error.message || "Failed to generate image" });
   }
 });
-
-app.all("/api/cron/daily-push", dailyPushHandler);
 
 export default app;
