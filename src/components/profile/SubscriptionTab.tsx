@@ -456,36 +456,34 @@ export function SubscriptionTab() {
           </div>
 
           {/* DUAL PAYMENT OPTIONS */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             
             {/* OPÇÃO 1: PIX 30 DIAS (Passe Avulso) */}
             <div 
               id="plan-card-pix-30days"
               className="bg-gradient-to-b from-emerald-950/50 to-slate-900 border border-emerald-500/40 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden group hover:border-emerald-400/60 transition-all shadow-lg"
             >
-              <div className="absolute top-2 right-2">
-                <span className="bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">
-                  Sem Renovação
-                </span>
-              </div>
-
               <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+                <div className="flex items-center justify-between gap-2 mb-2.5">
+                  <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 shrink-0">
                     <QrCode className="w-5 h-5" />
                   </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-white">Passe de 30 Dias</h4>
-                    <p className="text-[11px] text-emerald-300/80">Pagamento único via PIX</p>
-                  </div>
+                  <span className="bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full shrink-0 whitespace-nowrap">
+                    Sem Renovação
+                  </span>
                 </div>
 
-                <div className="my-3">
+                <div className="mb-3">
+                  <h4 className="text-base font-bold text-white leading-snug">Passe de 30 Dias</h4>
+                  <p className="text-xs text-emerald-300/80 mt-0.5">Pagamento único via PIX</p>
+                </div>
+
+                <div className="my-3 pt-2 border-t border-emerald-500/20">
                   <div className="flex items-baseline gap-1">
                     <span className="text-2xl sm:text-3xl font-black text-white">R$ 1,00</span>
                     <span className="text-xs text-gray-400 font-medium">/ 30 dias de acesso</span>
                   </div>
-                  <p className="text-[11px] text-gray-300 mt-1 leading-relaxed">
+                  <p className="text-xs text-gray-300 mt-1.5 leading-relaxed">
                     Ideal para testar. Encerra automaticamente após 30 dias sem surpresas ou cobranças no cartão.
                   </p>
                 </div>
@@ -495,7 +493,7 @@ export function SubscriptionTab() {
                 id="btn-buy-pix-pass"
                 onClick={handleGeneratePix}
                 disabled={loadingPix}
-                className="mt-3 w-full py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-70"
+                className="mt-4 w-full py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-70"
               >
                 {loadingPix ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -513,30 +511,28 @@ export function SubscriptionTab() {
               id="plan-card-card-recurring"
               className="bg-gradient-to-b from-purple-950/50 to-slate-900 border border-yellow-500/40 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden group hover:border-yellow-400/60 transition-all shadow-lg"
             >
-              <div className="absolute top-2 right-2">
-                <span className="bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <Sparkles className="w-2.5 h-2.5" />
-                  <span>Recorrente</span>
-                </span>
-              </div>
-
               <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="p-2 rounded-xl bg-yellow-500/20 text-yellow-400">
+                <div className="flex items-center justify-between gap-2 mb-2.5">
+                  <div className="p-2 rounded-xl bg-yellow-500/20 text-yellow-400 shrink-0">
                     <CreditCard className="w-5 h-5" />
                   </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-white">Assinatura Mensal</h4>
-                    <p className="text-[11px] text-yellow-300/80">Renovação automática</p>
-                  </div>
+                  <span className="bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full flex items-center gap-1 shrink-0 whitespace-nowrap">
+                    <Sparkles className="w-2.5 h-2.5" />
+                    <span>Recorrente</span>
+                  </span>
                 </div>
 
-                <div className="my-3">
+                <div className="mb-3">
+                  <h4 className="text-base font-bold text-white leading-snug">Assinatura Mensal</h4>
+                  <p className="text-xs text-yellow-300/80 mt-0.5">Renovação automática</p>
+                </div>
+
+                <div className="my-3 pt-2 border-t border-yellow-500/20">
                   <div className="flex items-baseline gap-1">
                     <span className="text-2xl sm:text-3xl font-black text-white">R$ 1,00</span>
                     <span className="text-xs text-gray-400 font-medium">/ mês no cartão</span>
                   </div>
-                  <p className="text-[11px] text-gray-300 mt-1 leading-relaxed">
+                  <p className="text-xs text-gray-300 mt-1.5 leading-relaxed">
                     Acesso contínuo sem precisar renovar todo mês. Cancele com 1 clique no app a qualquer hora.
                   </p>
                 </div>
@@ -546,7 +542,7 @@ export function SubscriptionTab() {
                 id="btn-buy-card-subscription"
                 onClick={handleSubscribeCard}
                 disabled={loadingCard}
-                className="mt-3 w-full py-3 px-4 bg-gradient-to-r from-yellow-500 via-amber-400 to-yellow-500 hover:from-yellow-400 hover:to-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-yellow-500/20 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-70"
+                className="mt-4 w-full py-3 px-4 bg-gradient-to-r from-yellow-500 via-amber-400 to-yellow-500 hover:from-yellow-400 hover:to-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-yellow-500/20 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-70"
               >
                 {loadingCard ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
