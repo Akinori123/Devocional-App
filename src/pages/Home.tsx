@@ -179,51 +179,51 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
     <div className="flex-1 overflow-y-auto pb-24 bg-gray-50 dark:bg-slate-900 min-h-screen transition-colors duration-200">
       
       {/* Fixed Header */}
-      <div className="sticky top-0 z-50 bg-yellow-400/95 dark:bg-yellow-500/95 backdrop-blur-md pt-10 pb-4 px-6 flex justify-between items-center transition-colors duration-200 border-b border-yellow-500/20 dark:border-yellow-600/20 shadow-sm">
+      <div className="sticky top-0 z-50 bg-yellow-400/95 dark:bg-slate-900/95 backdrop-blur-md pt-10 pb-4 px-6 flex justify-between items-center transition-colors duration-200 border-b border-yellow-500/20 dark:border-slate-800 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="bg-white/40 p-1.5 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-14 h-14 shrink-0">
+          <div className="bg-white/40 dark:bg-slate-800 p-1.5 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-14 h-14 shrink-0 border border-white/40 dark:border-slate-700">
             <img src="/rosa.png" alt="Florescer" className="w-full h-full object-cover" />
           </div>
-          <span className="font-serif font-bold text-yellow-950 text-2xl tracking-tight">Florescer</span>
+          <span className="font-serif font-bold text-yellow-950 dark:text-yellow-400 text-2xl tracking-tight">Florescer</span>
         </div>
         
         <button 
           onClick={() => onChangeTab('profile')} 
-          className="w-14 h-14 rounded-full border-2 border-white/60 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 hover:scale-105 transition-transform shrink-0"
+          className="w-14 h-14 rounded-full border-2 border-white/60 dark:border-slate-700 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 dark:bg-slate-800 hover:scale-105 transition-transform shrink-0"
         >
           {profile?.photoURL || user?.photoURL ? (
             <img src={profile?.photoURL || user?.photoURL || ''} alt={userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
           ) : (
-            <span className="text-yellow-900 font-bold text-lg">{userName.charAt(0).toUpperCase()}</span>
+            <span className="text-yellow-900 dark:text-yellow-400 font-bold text-lg">{userName.charAt(0).toUpperCase()}</span>
           )}
         </button>
       </div>
 
       {/* Greeting Area */}
-      <div className="bg-yellow-400 dark:bg-yellow-500 text-yellow-950 pt-6 pb-8 px-6 rounded-b-[2rem] shadow-sm transition-colors duration-200 relative z-40 -mt-[1px]">
+      <div className="bg-yellow-400 dark:bg-slate-800 text-yellow-950 dark:text-white pt-6 pb-8 px-6 rounded-b-[2rem] shadow-sm transition-colors duration-200 relative z-40 -mt-[1px] border-b border-yellow-500/10 dark:border-slate-700/50">
         
         {/* Greeting Text */}
         <div className="flex justify-between items-start mb-4">
           <div>
-            <h1 className="text-xl font-bold font-serif mb-1">{getGreeting()}, {userName}!</h1>
+            <h1 className="text-xl font-bold font-serif mb-1 text-yellow-950 dark:text-white">{getGreeting()}, {userName}!</h1>
             <div className="flex items-center gap-2 mt-1">
-              <p className="text-yellow-900 dark:text-yellow-950 text-sm opacity-90 font-medium leading-tight">Deus preparou algo especial para você hoje.</p>
-              <div className="bg-white/60 dark:bg-white/80 rounded-full p-1.5 backdrop-blur-md shadow-sm inline-flex shrink-0">
+              <p className="text-yellow-900 dark:text-gray-300 text-sm font-medium leading-tight">Deus preparou algo especial para você hoje.</p>
+              <div className="bg-white/60 dark:bg-slate-700 rounded-full p-1.5 backdrop-blur-md shadow-sm inline-flex shrink-0 text-yellow-950 dark:text-yellow-400">
                 <GreetingIcon />
               </div>
             </div>
           </div>
         </div>
-        <div id="tour-streak" className="bg-white/40 dark:bg-white/20 px-4 py-2.5 rounded-xl border border-white/60 dark:border-white/30 backdrop-blur-md shadow-sm flex items-center justify-between gap-3">
+        <div id="tour-streak" className="bg-white/40 dark:bg-slate-700/70 px-4 py-2.5 rounded-xl border border-white/60 dark:border-slate-600/70 backdrop-blur-md shadow-sm flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <Flame className="w-6 h-6 text-orange-500 fill-orange-500 shrink-0 filter drop-shadow-sm" />
-            <p className="text-sm font-semibold text-yellow-950 dark:text-yellow-950 truncate">
+            <p className="text-sm font-semibold text-yellow-950 dark:text-gray-100 truncate">
               {getJourneyContent().text}
             </p>
           </div>
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/60 dark:border-white/40 bg-white/60 dark:bg-white/40 shadow-xs shrink-0 backdrop-blur-md">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/60 dark:border-slate-500 bg-white/60 dark:bg-slate-600/80 shadow-xs shrink-0 backdrop-blur-md">
             <span className="text-base leading-none select-none">{getJourneyContent().emoji}</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-yellow-950 dark:text-yellow-950">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-yellow-950 dark:text-yellow-300">
               {getJourneyContent().label}
             </span>
           </div>
@@ -462,7 +462,7 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
               </p>
               
               <div className="w-full bg-gray-50 dark:bg-slate-800 rounded-xl p-4 border border-gray-100 dark:border-slate-700 mb-6">
-                <div className="text-2xl font-black text-gray-900 dark:text-white mb-1">R$ 29,90 <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/ mês</span></div>
+                <div className="text-2xl font-black text-gray-900 dark:text-white mb-1">R$ 1,00 <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/ mês</span></div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Cancele quando quiser, direto pelo aplicativo.</p>
               </div>
 

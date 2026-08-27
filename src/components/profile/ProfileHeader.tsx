@@ -110,12 +110,12 @@ export function ProfileHeader() {
                 <span>PREMIUM</span>
               </div>
             ) : (
-              <div className="inline-flex items-center gap-1 bg-yellow-900/10 text-yellow-950 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm whitespace-nowrap shrink-0">
+              <div className="inline-flex items-center gap-1 bg-yellow-900/10 dark:bg-slate-700/60 text-yellow-950 dark:text-gray-200 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm whitespace-nowrap shrink-0">
                 <User className="w-3 h-3" />
                 <span>PLANO GRATUITO</span>
               </div>
             )}
-            <div className="inline-flex items-center gap-1 bg-yellow-900/10 text-yellow-950 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm whitespace-nowrap shrink-0">
+            <div className="inline-flex items-center gap-1 bg-yellow-900/10 dark:bg-slate-700/60 text-yellow-950 dark:text-gray-200 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm whitespace-nowrap shrink-0">
               <Flame className="w-3 h-3 text-orange-500 fill-orange-500" />
               <span>{streakCount} Dias</span>
             </div>
@@ -123,10 +123,10 @@ export function ProfileHeader() {
         </div>
         <button 
           onClick={logout}
-          className="p-2 sm:p-2.5 bg-yellow-900/10 hover:bg-yellow-900/20 rounded-full transition-colors shrink-0 flex-shrink-0 ml-1"
+          className="p-2 sm:p-2.5 bg-yellow-900/10 dark:bg-slate-700/60 hover:bg-yellow-900/20 dark:hover:bg-slate-700 rounded-full transition-colors shrink-0 flex-shrink-0 ml-1"
           title="Sair"
         >
-          <LogOut className="w-4 h-4 text-yellow-950" />
+          <LogOut className="w-4 h-4 text-yellow-950 dark:text-gray-200" />
         </button>
       </div>
     </div>

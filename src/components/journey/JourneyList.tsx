@@ -79,35 +79,35 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
   return (
     <div className="pb-36 min-h-screen bg-gray-50 dark:bg-slate-900 flex flex-col relative transition-colors duration-200">
       {/* Header */}
-      <div className="sticky top-0 bg-yellow-400/95 dark:bg-yellow-500/95 backdrop-blur-md text-yellow-950 pt-10 pb-8 px-6 rounded-b-3xl shadow-sm z-50 shrink-0 transition-colors duration-200">
+      <div className="sticky top-0 bg-yellow-400/95 dark:bg-slate-900/95 backdrop-blur-md text-yellow-950 dark:text-white pt-10 pb-8 px-6 rounded-b-3xl shadow-sm z-50 shrink-0 transition-colors duration-200 border-b border-yellow-500/20 dark:border-slate-800">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-3">
-            <div className="bg-white/40 p-1.5 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-14 h-14 shrink-0">
+            <div className="bg-white/40 dark:bg-slate-800 p-1.5 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-14 h-14 shrink-0 border border-white/40 dark:border-slate-700">
               <img src="/rosa.png" alt="Florescer" className="w-full h-full object-cover" />
             </div>
-            <span className="font-serif font-bold text-yellow-950 text-2xl tracking-tight">Florescer</span>
+            <span className="font-serif font-bold text-yellow-950 dark:text-yellow-400 text-2xl tracking-tight">Florescer</span>
           </div>
           
           <button 
             onClick={() => onChangeTab?.('profile')} 
-            className="w-14 h-14 rounded-full border-2 border-white/60 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 hover:scale-105 transition-transform shrink-0"
+            className="w-14 h-14 rounded-full border-2 border-white/60 dark:border-slate-700 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 dark:bg-slate-800 hover:scale-105 transition-transform shrink-0"
           >
             {profile?.photoURL || user?.photoURL ? (
               <img src={profile?.photoURL || user?.photoURL || ''} alt={userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
             ) : (
-              <span className="text-yellow-900 font-bold text-lg">{userName.charAt(0).toUpperCase()}</span>
+              <span className="text-yellow-900 dark:text-yellow-400 font-bold text-lg">{userName.charAt(0).toUpperCase()}</span>
             )}
           </button>
         </div>
 
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-bold font-serif mb-1">Jornada</h1>
-            <p className="text-yellow-900 dark:text-yellow-950 text-sm">Trilhas de crescimento espiritual.</p>
+            <h1 className="text-2xl font-bold font-serif mb-1 text-yellow-950 dark:text-white">Jornada</h1>
+            <p className="text-yellow-900 dark:text-gray-300 text-sm">Trilhas de crescimento espiritual.</p>
           </div>
-          <div className="flex flex-col items-center justify-center bg-white/40 dark:bg-black/10 rounded-2xl p-2.5 backdrop-blur-sm shadow-sm border border-white/30 dark:border-white/5">
+          <div className="flex flex-col items-center justify-center bg-white/40 dark:bg-slate-800/80 rounded-2xl p-2.5 backdrop-blur-sm shadow-sm border border-white/30 dark:border-slate-700">
             <span className="text-2xl mb-0.5" title="Sua ofensiva floresce!">{plant.icon}</span>
-            <span className="text-[9px] font-bold uppercase tracking-wider text-yellow-950 dark:text-yellow-900">{plant.label}</span>
+            <span className="text-[9px] font-bold uppercase tracking-wider text-yellow-950 dark:text-yellow-400">{plant.label}</span>
           </div>
         </div>
       </div>
@@ -254,7 +254,7 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
         {/* Custom Devotionals (UGC) */}
         {customDevotionals.length > 0 && (
           <section>
-            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-4 flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-yellow-500" />
               Meus Devocionais
             </h2>
@@ -263,12 +263,12 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
                 <div key={dev.id} className="relative group">
                   <button
                     onClick={() => onSelectDevotional(dev, false)}
-                    className="w-full text-left bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-2 hover:border-yellow-200 transition-colors pr-12"
+                    className="w-full text-left bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 flex flex-col gap-2 hover:border-yellow-200 dark:hover:border-slate-600 transition-colors pr-12"
                   >
-                    <span className="text-[10px] font-bold text-yellow-500 bg-yellow-50 px-2 py-0.5 rounded-full uppercase tracking-wider w-fit">
+                    <span className="text-[10px] font-bold text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/30 px-2 py-0.5 rounded-full uppercase tracking-wider w-fit">
                       {dev.theme}
                     </span>
-                    <h3 className="font-bold text-gray-900 leading-tight">{dev.title}</h3>
+                    <h3 className="font-bold text-gray-900 dark:text-white leading-tight">{dev.title}</h3>
                   </button>
                   {confirmDeleteId === dev.id ? (
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center bg-red-50 rounded-full shadow-sm p-1 gap-1 border border-red-100">

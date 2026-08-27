@@ -369,7 +369,7 @@ export function VideoHistory({ onBack, onGoToPremium }: VideoHistoryProps) {
               </p>
               
               <div className="w-full bg-gray-50 dark:bg-slate-800 rounded-xl p-4 border border-gray-100 dark:border-slate-700 mb-6">
-                <div className="text-2xl font-black text-gray-900 dark:text-white mb-1">R$ 29,90 <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/ mês</span></div>
+                <div className="text-2xl font-black text-gray-900 dark:text-white mb-1">R$ 1,00 <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/ mês</span></div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Cancele quando quiser, direto pelo aplicativo.</p>
               </div>
 

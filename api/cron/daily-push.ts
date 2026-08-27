@@ -37,7 +37,7 @@ export default async function handler(req: Request, res: Response) {
     const cronSecret = process.env.CRON_SECRET;
     const isForce = req.query.force === 'true' || req.body?.force === true;
     
-    // Only check CRON_SECRET if it has been explicitly configured in environment
+    // Only verify CRON_SECRET if it has been explicitly configured in environment
     if (cronSecret && authHeader !== `Bearer ${cronSecret}` && !isForce) {
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -62,7 +62,7 @@ export default async function handler(req: Request, res: Response) {
         return res.status(200).json({ 
           success: true, 
           skipped: true, 
-          message: `Notificação matinal já foi disparada hoje (${todayBrasilia}). Para forçar o reenvio manual, envie o parâmetro ?force=true.`,
+          message: `Notificação matinal já foi disparada hoje (${todayBrasilia}). Para forçar o reenvio de teste, envie o parâmetro ?force=true.`,
           lastSentAt: logData?.sentAt
         });
       }
@@ -82,174 +82,314 @@ export default async function handler(req: Request, res: Response) {
       console.warn("Could not fetch daily_content doc:", e);
     }
 
-    // 3. Collect and Strictly Deduplicate Tokens Across All Users
+    // 3. Deduplicação Estrita por UID, Faxina de Tokens e Análise de Vencimento de Assinaturas (Dunning)
     const usersSnapshot = await firestore.collection("users").get();
     
-    // Map: token -> Array of { userId, updatedAt }
-    const tokenToUsersMap = new Map<string, Array<{ userId: string; updatedAt?: string }>>();
+    // Map: token -> Array de { userId, updatedAt }
+    const userToSelectedTokenMap = new Map<string, string>(); // userId -> single active token
+    const tokenToUsersList = new Map<string, string[]>(); // token -> list of userIds that had this token
+    const userDunningMap = new Map<string, { diffDays: number; title: string; body: string }>(); // userId -> custom dunning message
+    let tokensPrunedFromUsers = 0;
+    let expiredUsersRevoked = 0;
 
-    usersSnapshot.forEach(docSnap => {
+    const now = new Date();
+
+    for (const docSnap of usersSnapshot.docs) {
       const data = docSnap.data();
       const userId = docSnap.id;
-      const userTokens: string[] = [];
+      const isAdminUser = data.isAdmin === true || data.role === 'admin';
 
-      if (data.fcmTokens && Array.isArray(data.fcmTokens)) {
-        userTokens.push(...data.fcmTokens);
-      }
-      if (data.fcmToken && typeof data.fcmToken === 'string') {
-        userTokens.push(data.fcmToken);
-      }
+      // 3.1 Verificação de Vencimento / Dunning para Usuários Premium
+      if (data.isPremium === true && !isAdminUser) {
+        const expDateStr = data.subscriptionExpiresAt || data.currentPeriodEnd || data.expiresAt;
+        if (expDateStr) {
+          const expDate = new Date(expDateStr);
+          if (!isNaN(expDate.getTime())) {
+            const diffTime = expDate.getTime() - now.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-      const cleanUserTokens = Array.from(new Set(userTokens.filter(t => typeof t === 'string' && t.trim().length > 10)));
+            if (diffDays <= 0) {
+              // Assinatura já expirou: revogar acesso
+              try {
+                await firestore.collection("users").doc(userId).update({
+                  isPremium: false,
+                  subscriptionStatus: 'expired',
+                  subscriptionUpdatedAt: new Date().toISOString()
+                });
+                expiredUsersRevoked++;
+                console.log(`[Cron Daily] Revoked expired premium access for user ${userId}`);
+              } catch (expErr) {
+                console.warn(`[Cron Daily] Could not revoke expired user ${userId}:`, expErr);
+              }
+            } else if (diffDays <= 2) {
+              // Faltam 2 dias ou menos: agendar aviso suave (Dunning)
+              const title = diffDays === 1 
+                ? "Falta 1 dia! ⏳" 
+                : diffDays === 0 
+                  ? "Vence hoje! ⏳" 
+                  : "Faltam 2 dias! ⏳";
+              
+              const body = "Seu Florescer Premium está quase vencendo. Renove agora para não perder o Teólogo IA e seus áudios exclusivos!";
 
-      for (const token of cleanUserTokens) {
-        const existing = tokenToUsersMap.get(token) || [];
-        existing.push({
-          userId,
-          updatedAt: data.fcmTokenUpdatedAt || data.lastReadDate || data.createdAt || ''
-        });
-        tokenToUsersMap.set(token, existing);
-      }
-    });
-
-    // Cleanup Cross-Account Token Duplications in Firestore:
-    // If the same physical device token belongs to multiple accounts (e.g. relog on same browser),
-    // keep it on the most recently active account and detach from older accounts.
-    let crossAccountPrunedCount = 0;
-    for (const [token, users] of tokenToUsersMap.entries()) {
-      if (users.length > 1) {
-        // Sort: most recent first
-        users.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-        // Keep index 0, remove token from the rest
-        const toRemoveFrom = users.slice(1);
-        for (const orphan of toRemoveFrom) {
-          try {
-            await firestore.collection("users").doc(orphan.userId).update({
-              fcmTokens: FieldValue.arrayRemove(token)
-            });
-            crossAccountPrunedCount++;
-          } catch (err) {
-            console.warn(`Could not prune duplicate token from user ${orphan.userId}:`, err);
+              userDunningMap.set(userId, { diffDays, title, body });
+            }
           }
+        }
+      }
+
+      const rawTokens: string[] = [];
+      if (Array.isArray(data.fcmTokens)) {
+        rawTokens.push(...data.fcmTokens);
+      }
+      if (typeof data.fcmToken === 'string') {
+        rawTokens.push(data.fcmToken);
+      }
+
+      // Filter valid tokens
+      const validTokens = Array.from(new Set(rawTokens.filter(t => typeof t === 'string' && t.trim().length > 10)));
+
+      if (validTokens.length === 0) {
+        continue;
+      }
+
+      // Track all users that possess these tokens
+      for (const t of validTokens) {
+        const uList = tokenToUsersList.get(t) || [];
+        uList.push(userId);
+        tokenToUsersList.set(t, uList);
+      }
+
+      // Regra 1: Selecionar estritamente 1 único token prioritário por usuário (o mais recente)
+      let primaryToken = typeof data.fcmToken === 'string' && data.fcmToken.trim().length > 10 
+        ? data.fcmToken.trim() 
+        : validTokens[validTokens.length - 1];
+
+      userToSelectedTokenMap.set(userId, primaryToken);
+
+      // Faxina proativa: se o usuário tiver mais de 2 tokens na array dele, limitar aos 2 mais recentes
+      if (validTokens.length > 2) {
+        const keptTokens = validTokens.slice(-2);
+        try {
+          await firestore.collection("users").doc(userId).update({
+            fcmTokens: keptTokens,
+            fcmToken: primaryToken
+          });
+          tokensPrunedFromUsers += (validTokens.length - keptTokens.length);
+        } catch (cleanErr) {
+          console.warn(`Could not prune excess tokens for user ${userId}:`, cleanErr);
         }
       }
     }
 
-    // 4. Final Unique Token List (Strict 1 push per device)
-    const uniqueTokens = Array.from(tokenToUsersMap.keys());
+    // Regra 1 (cont.): Agrupamento global por token físico único (Deduplicação de aparelhos compartilhados)
+    const tokenToTargetUser = new Map<string, string>(); // token -> userId
+    for (const [userId, token] of userToSelectedTokenMap.entries()) {
+      tokenToTargetUser.set(token, userId);
+    }
 
-    if (uniqueTokens.length === 0) {
+    const uniqueTokensToSend = Array.from(tokenToTargetUser.keys());
+
+    if (uniqueTokensToSend.length === 0) {
       return res.status(200).json({ 
         success: true, 
         message: "Nenhum token de notificação ativo encontrado no banco de usuários.", 
-        tokensFound: 0 
+        totalUsers: usersSnapshot.size,
+        tokensFound: 0,
+        expiredUsersRevoked
       });
     }
 
-    // 5. Construct Notification Message with Anti-Duplicate Tag
-    const notificationPayload = {
-      notification: {
-        title: "Bom dia! ☀️",
-        body: `"${wordOfTheDay}"... Volte ao app para continuar sua leitura na Bíblia ou na sua Jornada. Não desista do seu propósito!`,
-      },
-      webpush: {
-        headers: {
-          Urgency: "high",
-          Topic: "daily-push"
-        },
-        notification: {
-          tag: `daily-push-${todayBrasilia}`,
-          icon: "/rosa.png",
-          badge: "/rosa.png",
-          renotify: false
-        },
-        fcmOptions: { 
-          link: "/" 
-        }
-      },
-      data: {
-        tag: `daily-push-${todayBrasilia}`,
-        url: "/"
+    // 4. Separar Tokens entre Dunning (Aviso de Vencimento) e Devocional Diário Padrão
+    const dunningTokensList: { token: string; title: string; body: string }[] = [];
+    const standardTokensList: string[] = [];
+
+    for (const token of uniqueTokensToSend) {
+      const targetUserId = tokenToTargetUser.get(token);
+      if (targetUserId && userDunningMap.has(targetUserId)) {
+        const dunningInfo = userDunningMap.get(targetUserId)!;
+        dunningTokensList.push({
+          token,
+          title: dunningInfo.title,
+          body: dunningInfo.body
+        });
+      } else {
+        standardTokensList.push(token);
       }
-    };
+    }
 
     const messaging = getMessaging();
-    const chunkedTokens: string[][] = [];
-    for (let i = 0; i < uniqueTokens.length; i += 500) {
-      chunkedTokens.push(uniqueTokens.slice(i, i + 500));
-    }
-
     let successCount = 0;
     let failureCount = 0;
-    const deadTokensToPrune: string[] = [];
+    const deadTokensToClean: string[] = [];
 
-    for (const chunk of chunkedTokens) {
-      const response = await messaging.sendEachForMulticast({
-        tokens: chunk,
-        notification: notificationPayload.notification,
-        webpush: notificationPayload.webpush,
-        data: notificationPayload.data
-      });
-
-      successCount += response.successCount;
-      failureCount += response.failureCount;
-
-      // Identify invalid / expired / unregistered tokens
-      response.responses.forEach((resp, idx) => {
-        if (!resp.success && resp.error) {
-          const errorCode = resp.error.code || '';
-          const errorMsg = resp.error.message || '';
-          if (
-            errorCode.includes('not-registered') ||
-            errorCode.includes('invalid-registration-token') ||
-            errorCode.includes('mismatched-credential') ||
-            errorMsg.includes('UNREGISTERED') ||
-            errorMsg.includes('registration-token-not-registered')
-          ) {
-            deadTokensToPrune.push(chunk[idx]);
+    // 5. Envio das Mensagens Padrão (Devocional Matinal)
+    if (standardTokensList.length > 0) {
+      const standardPayload = {
+        notification: {
+          title: "Bom dia! ☀️",
+          body: `"${wordOfTheDay}"... Volte ao app para continuar sua leitura na Bíblia ou na sua Jornada. Não desista do seu propósito!`,
+        },
+        webpush: {
+          headers: {
+            Urgency: "high",
+            Topic: "daily-push"
+          },
+          notification: {
+            tag: `daily-push-${todayBrasilia}`,
+            icon: "/rosa.png",
+            badge: "/rosa.png",
+            renotify: false
+          },
+          fcmOptions: { 
+            link: "/" 
           }
+        },
+        data: {
+          tag: `daily-push-${todayBrasilia}`,
+          url: "/"
         }
-      });
+      };
+
+      const chunkedStandard: string[][] = [];
+      for (let i = 0; i < standardTokensList.length; i += 500) {
+        chunkedStandard.push(standardTokensList.slice(i, i + 500));
+      }
+
+      for (const chunk of chunkedStandard) {
+        const response = await messaging.sendEachForMulticast({
+          tokens: chunk,
+          notification: standardPayload.notification,
+          webpush: standardPayload.webpush,
+          data: standardPayload.data
+        });
+
+        successCount += response.successCount;
+        failureCount += response.failureCount;
+
+        response.responses.forEach((resp, idx) => {
+          if (!resp.success && resp.error) {
+            const currentToken = chunk[idx];
+            const errorCode = (resp.error.code || '').toLowerCase();
+            const errorMsg = (resp.error.message || '').toLowerCase();
+
+            const isDeadToken = 
+              errorCode.includes('invalid-registration-token') ||
+              errorCode.includes('registration-token-not-registered') ||
+              errorCode.includes('not-registered') ||
+              errorCode.includes('mismatched-credential') ||
+              errorCode.includes('invalid-argument') ||
+              errorMsg.includes('unregistered') ||
+              errorMsg.includes('not-registered') ||
+              errorMsg.includes('requested entity was not found');
+
+            if (isDeadToken) {
+              deadTokensToClean.push(currentToken);
+            }
+          }
+        });
+      }
     }
 
-    // 6. Clean up dead/unregistered tokens from Firestore
-    let deadTokensCleaned = 0;
-    if (deadTokensToPrune.length > 0) {
-      const uniqueDeadTokens = Array.from(new Set(deadTokensToPrune));
-      for (const deadToken of uniqueDeadTokens) {
-        const associatedUsers = tokenToUsersMap.get(deadToken) || [];
-        for (const u of associatedUsers) {
-          try {
-            await firestore.collection("users").doc(u.userId).update({
-              fcmTokens: FieldValue.arrayRemove(deadToken)
-            });
-            deadTokensCleaned++;
-          } catch (e) {
-            // Ignore clean up errors on deleted docs
+    // 6. Envio das Mensagens de Dunning (Aviso de Vencimento de Assinatura)
+    let dunningSentCount = 0;
+    if (dunningTokensList.length > 0) {
+      for (const item of dunningTokensList) {
+        try {
+          await messaging.send({
+            token: item.token,
+            notification: {
+              title: item.title,
+              body: item.body,
+            },
+            webpush: {
+              headers: {
+                Urgency: "high",
+                Topic: "subscription-dunning"
+              },
+              notification: {
+                tag: `subscription-dunning-${todayBrasilia}`,
+                icon: "/rosa.png",
+                badge: "/rosa.png",
+                renotify: true
+              },
+              fcmOptions: {
+                link: "/?tab=profile"
+              }
+            },
+            data: {
+              tag: `subscription-dunning-${todayBrasilia}`,
+              url: "/?tab=profile"
+            }
+          });
+          successCount++;
+          dunningSentCount++;
+        } catch (sendErr: any) {
+          failureCount++;
+          const errorCode = (sendErr.code || '').toLowerCase();
+          const errorMsg = (sendErr.message || '').toLowerCase();
+          const isDeadToken = 
+            errorCode.includes('invalid-registration-token') ||
+            errorCode.includes('registration-token-not-registered') ||
+            errorCode.includes('not-registered') ||
+            errorCode.includes('mismatched-credential') ||
+            errorCode.includes('invalid-argument') ||
+            errorMsg.includes('unregistered') ||
+            errorMsg.includes('not-registered') ||
+            errorMsg.includes('requested entity was not found');
+
+          if (isDeadToken) {
+            deadTokensToClean.push(item.token);
           }
         }
       }
     }
 
-    // 7. Save Idempotency Log in Firestore
+    // Regra 2 (cont.): Limpeza Automática Imediata dos Tokens Mortos no Firestore
+    let deadTokensDeletedCount = 0;
+    if (deadTokensToClean.length > 0) {
+      const uniqueDeadTokens = Array.from(new Set(deadTokensToClean));
+      
+      for (const deadToken of uniqueDeadTokens) {
+        // Encontrar todos os usuários que tinham este token morto
+        const associatedUserIds = tokenToUsersList.get(deadToken) || [];
+        for (const uId of associatedUserIds) {
+          try {
+            await firestore.collection("users").doc(uId).update({
+              fcmTokens: FieldValue.arrayRemove(deadToken),
+              fcmToken: FieldValue.delete()
+            });
+            deadTokensDeletedCount++;
+          } catch (delErr) {
+            // Ignorar erros caso o doc já tenha sido alterado ou excluído
+          }
+        }
+      }
+    }
+
+    // 6. Registrar Log de Idempotência no Firestore
     await logRef.set({
       lastSentDate: todayBrasilia,
       sentAt: new Date().toISOString(),
-      uniqueDevicesReached: uniqueTokens.length,
+      uniqueDevicesReached: uniqueTokensToSend.length,
       successCount,
       failureCount,
-      crossAccountPrunedCount,
-      deadTokensCleaned
+      dunningSentCount,
+      expiredUsersRevoked,
+      tokensPrunedFromUsers,
+      deadTokensDeletedCount
     }, { merge: true });
 
     return res.status(200).json({ 
       success: true, 
       date: todayBrasilia,
-      totalDevices: uniqueTokens.length, 
+      usersScanned: usersSnapshot.size,
+      uniqueTokensSent: uniqueTokensToSend.length, 
       successCount, 
       failureCount,
-      crossAccountPrunedCount,
-      deadTokensCleaned
+      dunningSentCount,
+      expiredUsersRevoked,
+      tokensPrunedFromUsers,
+      deadTokensDeletedCount
     });
   } catch (error: any) {
     console.error("Error in daily-push cron:", error);

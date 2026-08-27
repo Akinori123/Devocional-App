@@ -4,7 +4,7 @@ import {
   onAuthStateChanged, 
   signOut,
 } from 'firebase/auth';
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, arrayRemove } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { differenceInCalendarDays, parseISO, format } from 'date-fns';
 
@@ -159,7 +159,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.uid, profile?.lastReadDate, profile?.streakCount]);
 
   const logout = useCallback(async () => {
-    await signOut(auth);
+    try {
+      if (auth.currentUser) {
+        const uid = auth.currentUser.uid;
+        const storedToken = localStorage.getItem('activeFcmToken');
+        if (storedToken) {
+          const uRef = doc(db, 'users', uid);
+          await updateDoc(uRef, {
+            fcmTokens: arrayRemove(storedToken)
+          }).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn("Could not unbind push token on logout:", e);
+    } finally {
+      localStorage.removeItem('activeFcmUserId');
+      await signOut(auth);
+    }
   }, []);
 
   const updateProfileState = useCallback((newProfile: UserProfile) => {

@@ -6,6 +6,7 @@
 import { useState, useCallback } from 'react';
 import { BottomNav } from './components/BottomNav';
 import { TourGuide } from './components/TourGuide';
+import { SubscriptionLandingModal } from './components/subscription/SubscriptionLandingModal';
 import { Home } from './pages/Home';
 import { Bible } from './pages/Bible';
 import { Journey } from './pages/Journey';
@@ -52,7 +53,12 @@ function AppContent() {
   }
 
   if (!user) {
-    return <Onboarding />;
+    return (
+      <>
+        <Onboarding />
+        <SubscriptionLandingModal />
+      </>
+    );
   }
 
   if (profile?.isDeleted) {
@@ -99,6 +105,7 @@ function AppContent() {
       {renderContent()}
       <BottomNav currentTab={currentTab} onChangeTab={handleTabChange} />
       <TourGuide onChangeTab={handleTabChange} />
+      <SubscriptionLandingModal />
     </>
   );
 }

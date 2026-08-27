@@ -6,7 +6,7 @@ import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
-import { MercadoPagoConfig, Preference, PreApproval } from 'mercadopago';
+import { MercadoPagoConfig, Preference, PreApproval, Payment } from 'mercadopago';
 import dailyPushHandler from './cron/daily-push';
 
 dotenv.config();
@@ -37,7 +37,7 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-app.post("/api/checkout", async (req, res) => {
+const handleCheckoutSubscription = async (req: express.Request, res: express.Response) => {
   try {
     const { userId, userEmail } = req.body;
     
@@ -53,15 +53,15 @@ app.post("/api/checkout", async (req, res) => {
 
     const result = await preApproval.create({
       body: {
-        reason: "Assinatura VIP",
+        reason: "Assinatura VIP Florescer",
         auto_recurring: {
           frequency: 1,
           frequency_type: "months",
-          transaction_amount: 29.90,
+          transaction_amount: 1.00, // Preço promocional/teste de produção: R$ 1,00
           currency_id: "BRL"
         },
         payer_email: userEmail || "test@test.com",
-        back_url: `${req.headers.origin || 'http://localhost:3000'}/perfil?payment=success`,
+        back_url: `${req.headers.origin || 'http://localhost:3000'}/?subscription=success`,
         external_reference: userId,
         status: "pending"
       }
@@ -72,7 +72,10 @@ app.post("/api/checkout", async (req, res) => {
     console.error("Checkout error:", error);
     res.status(500).json({ error: "Failed to create checkout" });
   }
-});
+};
+
+app.post("/api/checkout", handleCheckoutSubscription);
+app.post("/api/create-subscription", handleCheckoutSubscription);
 
 app.post("/api/cancel-subscription", async (req, res) => {
   try {
@@ -139,59 +142,145 @@ const handleMercadoPagoWebhook = async (req: express.Request, res: express.Respo
       queryTopic === 'subscription_preapproval' || 
       action === 'created' || 
       action === 'updated';
+    
+    const isPaymentEvent = 
+      type === 'payment' || 
+      queryTopic === 'payment';
 
+    if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
+      console.warn("[MP Webhook] MERCADOPAGO_ACCESS_TOKEN missing on webhook");
+      return res.status(200).send("Webhook received without MP token");
+    }
+
+    const client = new MercadoPagoConfig({ accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN });
+    const firestore = getFirestore();
+
+    // 1. Recorrência / Assinatura (PreApproval)
     if (isSubscriptionEvent) {
       const subId = data?.id || req.body?.data?.id || req.query?.['data.id'] || req.query?.id;
       if (subId) {
-        if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
-          console.warn("MERCADOPAGO_ACCESS_TOKEN missing on webhook");
-          return res.status(200).send("Webhook received without MP token");
-        }
-
-        const client = new MercadoPagoConfig({ accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN });
         const preApproval = new PreApproval(client);
         const sub = await preApproval.get({ id: String(subId) });
         
-        const firestore = getFirestore();
-        
         if (sub.status === 'authorized') {
-          // Grant premium
           if (sub.external_reference) {
             const userId = sub.external_reference;
             const userRef = firestore.collection("users").doc(userId);
-            await userRef.update({ 
-              isPremium: true, 
-              mpSubscriptionId: String(subId),
-              subscriptionStatus: sub.status,
-              cancelAtPeriodEnd: false
-            });
+            const userDoc = await userRef.get();
+            
+            if (userDoc.exists) {
+              const userData = userDoc.data();
+              // Idempotency check: if already active premium with this subId, bypass write
+              if (userData?.isPremium === true && userData?.mpSubscriptionId === String(subId) && userData?.subscriptionStatus === 'authorized') {
+                console.log(`[MP Webhook] Idempotent: User ${userId} already has active premium for subscription ${subId}. Skipping.`);
+                return res.status(200).send("OK: Idempotent - Already processed");
+              }
+
+              const expiresAt = new Date(Date.now() + 31 * 24 * 60 * 60 * 1000).toISOString();
+              await userRef.update({ 
+                isPremium: true, 
+                mpSubscriptionId: String(subId),
+                subscriptionStatus: sub.status,
+                subscriptionPlan: 'monthly',
+                subscriptionExpiresAt: expiresAt,
+                cancelAtPeriodEnd: false,
+                lastProcessedSubscriptionId: String(subId),
+                subscriptionUpdatedAt: new Date().toISOString()
+              });
+              console.log(`[MP Webhook] Granted premium access to user ${userId} for sub ${subId}`);
+            }
           }
         } else if (sub.status === 'cancelled') {
-          // Keep premium until end of cycle, flag cancellation
+          // Keep premium until end of cycle or mark cancellation
           const usersRef = firestore.collection("users");
           const snapshot = await usersRef.where("mpSubscriptionId", "==", String(subId)).get();
           if (!snapshot.empty) {
             const doc = snapshot.docs[0];
+            const data = doc.data();
+            if (data.subscriptionStatus === 'cancelled' && data.cancelAtPeriodEnd === true) {
+              return res.status(200).send("OK: Idempotent - Cancellation already marked");
+            }
             await doc.ref.update({ 
               subscriptionStatus: sub.status,
-              cancelAtPeriodEnd: true
+              cancelAtPeriodEnd: true,
+              subscriptionUpdatedAt: new Date().toISOString()
             });
           }
-        } else if (sub.status === 'expired' || sub.status === 'suspended') {
-          // Revoke premium only when expired or payment permanently failed
+        } else if (sub.status === 'expired' || sub.status === 'suspended' || sub.status === 'paused') {
+          // Suspensão por Inadimplência ou Cancelamento definitivo: revoga o acesso imediatamente
           const usersRef = firestore.collection("users");
           const snapshot = await usersRef.where("mpSubscriptionId", "==", String(subId)).get();
           if (!snapshot.empty) {
             const doc = snapshot.docs[0];
+            const data = doc.data();
+            if (data.isPremium === false && data.subscriptionStatus === sub.status) {
+              return res.status(200).send("OK: Idempotent - Already revoked");
+            }
             await doc.ref.update({ 
               isPremium: false, 
               subscriptionStatus: sub.status,
-              cancelAtPeriodEnd: false
+              cancelAtPeriodEnd: false,
+              subscriptionUpdatedAt: new Date().toISOString()
             });
+            console.log(`[MP Webhook] Revoked premium for user ${doc.id} due to status: ${sub.status}`);
           }
         }
       }
     }
+
+    // 2. Pagamento Avulso / PIX (Payment)
+    if (isPaymentEvent) {
+      const paymentId = data?.id || req.body?.data?.id || req.query?.['data.id'] || req.query?.id;
+      if (paymentId) {
+        const paymentInstance = new Payment(client);
+        const paymentData = await paymentInstance.get({ id: Number(paymentId) });
+        
+        const userId = (paymentData.metadata as any)?.user_id || paymentData.external_reference;
+        if (userId) {
+          const userRef = firestore.collection("users").doc(userId);
+          const userDoc = await userRef.get();
+
+          if (userDoc.exists) {
+            const userData = userDoc.data();
+
+            if (paymentData.status === 'approved') {
+              // Idempotency check: if this payment was already credited
+              if (userData?.lastProcessedPaymentId === String(paymentId) && userData?.isPremium === true) {
+                console.log(`[MP Webhook] Idempotent: Payment ${paymentId} already credited to user ${userId}. Skipping.`);
+                return res.status(200).send("OK: Idempotent - Payment already processed");
+              }
+
+              const expiresAt = new Date(Date.now() + 31 * 24 * 60 * 60 * 1000).toISOString();
+
+              await userRef.update({
+                isPremium: true,
+                subscriptionStatus: 'active',
+                subscriptionPlan: (paymentData.metadata as any)?.plan_id || 'monthly',
+                subscriptionExpiresAt: expiresAt,
+                lastProcessedPaymentId: String(paymentId),
+                cancelAtPeriodEnd: false,
+                subscriptionUpdatedAt: new Date().toISOString()
+              });
+              console.log(`[MP Webhook] Granted premium access to user ${userId} for payment ${paymentId}`);
+            } else if (
+              paymentData.status === 'refunded' || 
+              paymentData.status === 'charged_back' || 
+              paymentData.status === 'cancelled' ||
+              paymentData.status === 'rejected'
+            ) {
+              // Suspensão / estorno imediato
+              await userRef.update({
+                isPremium: false,
+                subscriptionStatus: paymentData.status,
+                subscriptionUpdatedAt: new Date().toISOString()
+              });
+              console.log(`[MP Webhook] Revoked premium for user ${userId} due to payment status: ${paymentData.status}`);
+            }
+          }
+        }
+      }
+    }
+
     res.status(200).send("OK");
   } catch (error) {
     console.error("Webhook error:", error);
@@ -200,7 +289,9 @@ const handleMercadoPagoWebhook = async (req: express.Request, res: express.Respo
 };
 
 app.post("/api/webhook", handleMercadoPagoWebhook);
+app.post("/api/webhook/mercadopago", handleMercadoPagoWebhook);
 app.post("/api/mercadopago/webhook", handleMercadoPagoWebhook);
+app.get("/api/webhook/mercadopago", (req, res) => res.status(200).json({ status: "ok", message: "Mercado Pago Webhook endpoint is live and ready" }));
 app.get("/api/mercadopago/webhook", (req, res) => res.status(200).json({ status: "ok", message: "Mercado Pago Webhook endpoint is live" }));
 
 // Fallback / Auxiliary Text-To-Speech Route
@@ -244,7 +335,7 @@ app.post("/api/payment/create", async (req, res) => {
             id: planId || "premium_plan",
             title: title || "Plano Premium",
             quantity: quantity || 1,
-            unit_price: price || 9.90,
+            unit_price: price || 1.00,
             currency_id: "BRL",
           }
         ],
@@ -256,9 +347,9 @@ app.post("/api/payment/create", async (req, res) => {
           plan_id: planId
         },
         back_urls: {
-          success: `${req.headers.origin || 'http://localhost:3000'}/perfil?payment=success`,
-          failure: `${req.headers.origin || 'http://localhost:3000'}/perfil?payment=failure`,
-          pending: `${req.headers.origin || 'http://localhost:3000'}/perfil?payment=pending`
+          success: `${req.headers.origin || 'http://localhost:3000'}/?subscription=success`,
+          failure: `${req.headers.origin || 'http://localhost:3000'}/?subscription=failure`,
+          pending: `${req.headers.origin || 'http://localhost:3000'}/?subscription=pending`
         },
         auto_return: "approved",
       }

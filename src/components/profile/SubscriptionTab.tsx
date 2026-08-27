@@ -282,7 +282,7 @@ export function SubscriptionTab() {
           </div>
 
           <div className="mb-8 text-center bg-black/20 rounded-3xl p-6 border border-white/10 backdrop-blur-md shadow-inner">
-            <div className="text-4xl font-black text-white mb-1 tracking-tight">R$ 29,90 <span className="text-lg font-normal text-rose-300">/ mês</span></div>
+            <div className="text-4xl font-black text-white mb-1 tracking-tight">R$ 1,00 <span className="text-lg font-normal text-rose-300">/ mês</span></div>
             <p className="text-sm text-rose-200/60 uppercase tracking-widest font-medium mt-2">Cancele quando quiser, sem burocracia.</p>
           </div>
 

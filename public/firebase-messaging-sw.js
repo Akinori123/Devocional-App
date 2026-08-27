@@ -15,17 +15,26 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw.js] Received background message ', payload);
-  const notificationTitle = payload.notification?.title || 'Florescer Devocional';
-  const notificationOptions = {
-    body: payload.notification?.body || 'Um novo versículo e reflexão esperam por você hoje.',
-    icon: '/logo.png',
-    badge: '/logo.png',
-    data: {
-      url: payload.data?.url || payload.fcmOptions?.link || '/'
-    }
-  };
 
-  self.registration.showNotification(notificationTitle, notificationOptions);
+  // When Firebase send payload contains a 'notification' object, 
+  // the browser WebPush handler natively displays it automatically.
+  // We only manually call showNotification if this was a data-only push payload,
+  // preventing duplicate notifications on Android/iOS/Desktop.
+  if (!payload.notification) {
+    const notificationTitle = payload.data?.title || 'Florescer Devocional';
+    const notificationOptions = {
+      body: payload.data?.body || 'Um novo versículo e reflexão esperam por você hoje.',
+      icon: '/rosa.png',
+      badge: '/rosa.png',
+      tag: payload.data?.tag || 'florescer-daily-push',
+      renotify: false,
+      data: {
+        url: payload.data?.url || payload.fcmOptions?.link || '/'
+      }
+    };
+
+    self.registration.showNotification(notificationTitle, notificationOptions);
+  }
 });
 
 self.addEventListener('notificationclick', (event) => {

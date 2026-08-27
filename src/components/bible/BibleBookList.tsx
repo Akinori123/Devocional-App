@@ -231,29 +231,29 @@ export function BibleBookList({ onSelectBook, onSelectDirectChapter, onChangeTab
   return (
     <div className="pb-24">
       {/* Header with search */}
-      <div className="sticky top-0 z-50 bg-yellow-400/95 dark:bg-yellow-500/95 backdrop-blur-md pt-10 pb-6 px-6 text-yellow-950 shadow-sm rounded-b-3xl transition-colors duration-200">
+      <div className="sticky top-0 z-50 bg-yellow-400/95 dark:bg-slate-900/95 backdrop-blur-md pt-10 pb-6 px-6 text-yellow-950 dark:text-white shadow-sm rounded-b-3xl transition-colors duration-200 border-b border-yellow-500/20 dark:border-slate-800">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-3">
-            <div className="bg-white/40 p-1.5 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-14 h-14 shrink-0">
+            <div className="bg-white/40 dark:bg-slate-800 p-1.5 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-14 h-14 shrink-0 border border-white/40 dark:border-slate-700">
               <img src="/rosa.png" alt="Florescer" className="w-full h-full object-cover" />
             </div>
-            <span className="font-serif font-bold text-yellow-950 text-2xl tracking-tight">Florescer</span>
+            <span className="font-serif font-bold text-yellow-950 dark:text-yellow-400 text-2xl tracking-tight">Florescer</span>
           </div>
           
           <button 
             onClick={() => onChangeTab?.('profile')} 
-            className="w-14 h-14 rounded-full border-2 border-white/60 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 hover:scale-105 transition-transform shrink-0"
+            className="w-14 h-14 rounded-full border-2 border-white/60 dark:border-slate-700 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 dark:bg-slate-800 hover:scale-105 transition-transform shrink-0"
           >
             {profile?.photoURL || user?.photoURL ? (
               <img src={profile?.photoURL || user?.photoURL || ''} alt={userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
             ) : (
-              <span className="text-yellow-900 font-bold text-lg">{userName.charAt(0).toUpperCase()}</span>
+              <span className="text-yellow-900 dark:text-yellow-400 font-bold text-lg">{userName.charAt(0).toUpperCase()}</span>
             )}
           </button>
         </div>
 
-        <h1 className="text-2xl font-bold font-serif mb-1">Bíblia Sagrada</h1>
-        <p className="text-yellow-900 dark:text-yellow-950 text-sm mb-4">Acompanhe seu progresso e mergulhe nas Escrituras.</p>
+        <h1 className="text-2xl font-bold font-serif mb-1 text-yellow-950 dark:text-white">Bíblia Sagrada</h1>
+        <p className="text-yellow-900 dark:text-gray-300 text-sm mb-4">Acompanhe seu progresso e mergulhe nas Escrituras.</p>
         
         <div className="relative shadow-sm rounded-xl">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />

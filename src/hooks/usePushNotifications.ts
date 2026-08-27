@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { getToken } from 'firebase/messaging';
-import { doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayRemove } from 'firebase/firestore';
 import { db, getMessagingInstance } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 
@@ -13,7 +13,7 @@ export function usePushNotifications() {
   const userRef = useRef(user);
   userRef.current = user;
 
-  // Helper to obtain and save token
+  // Helper to obtain and save token with strict recent-device capping (max 2 devices)
   const registerToken = useCallback(async (userId: string) => {
     try {
       const messaging = await getMessagingInstance();
@@ -32,10 +32,37 @@ export function usePushNotifications() {
       });
 
       if (token && userId) {
+        // Save current active device token in local state
+        localStorage.setItem('activeFcmToken', token);
+        localStorage.setItem('activeFcmUserId', userId);
+
         const uRef = doc(db, 'users', userId);
-        await updateDoc(uRef, {
-          fcmTokens: arrayUnion(token)
-        });
+        
+        try {
+          const userSnap = await getDoc(uRef);
+          let currentTokens: string[] = [];
+          if (userSnap.exists()) {
+            const data = userSnap.data();
+            if (Array.isArray(data.fcmTokens)) {
+              currentTokens = data.fcmTokens.filter((t: any) => typeof t === 'string' && t.trim().length > 10 && t !== token);
+            }
+          }
+          // Keep at most 1 previous token + the current new active token (max 2 active devices)
+          const cleanTokens = [...currentTokens.slice(-1), token];
+
+          await updateDoc(uRef, {
+            fcmTokens: cleanTokens,
+            fcmToken: token,
+            fcmTokenUpdatedAt: new Date().toISOString()
+          });
+        } catch (updateErr) {
+          // Fallback if read fails
+          await updateDoc(uRef, {
+            fcmTokens: [token],
+            fcmToken: token,
+            fcmTokenUpdatedAt: new Date().toISOString()
+          }).catch(() => {});
+        }
       }
       return token;
     } catch (err) {
@@ -152,6 +179,8 @@ export function usePushNotifications() {
         }
 
         localStorage.setItem('pushEnabled', 'false');
+        localStorage.removeItem('activeFcmToken');
+        localStorage.removeItem('activeFcmUserId');
         setIsSubscribed(false);
         return false;
       } else {
