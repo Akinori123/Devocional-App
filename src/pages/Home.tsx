@@ -14,6 +14,7 @@ import { getJourneyStatus } from '../utils/journey';
 import { getThemeStyle } from '../utils/themeStyle';
 
 import { DevotionalItem } from '../data/devotionals';
+import { YouTubeFacade } from '../components/video/YouTubeFacade';
 
 interface CarouselDevotionalItem extends DevotionalItem {
   dayNumber: number;
@@ -28,16 +29,16 @@ interface HomeProps {
 
 const getGreeting = () => {
   const hour = new Date().getHours();
-  if (hour < 12) return 'Bom dia';
-  if (hour < 18) return 'Boa tarde';
+  if (hour >= 5 && hour < 12) return 'Bom dia';
+  if (hour >= 12 && hour < 18) return 'Boa tarde';
   return 'Boa noite';
 };
 
 const GreetingIcon = () => {
   const hour = new Date().getHours();
-  if (hour < 12) return <Sunrise className="w-5 h-5 text-orange-400" />;
-  if (hour < 18) return <Sun className="w-5 h-5 text-yellow-500 fill-yellow-500" />;
-  return <Moon className="w-5 h-5 text-blue-900 fill-blue-900" />;
+  if (hour >= 5 && hour < 12) return <Sunrise className="w-5 h-5 text-orange-400" />;
+  if (hour >= 12 && hour < 18) return <Sun className="w-5 h-5 text-yellow-500 fill-yellow-500" />;
+  return <Moon className="w-5 h-5 text-indigo-900 dark:text-white fill-indigo-900 dark:fill-white transition-colors" />;
 };
 
 export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
@@ -54,26 +55,48 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
   
   // Carousel Drag to Scroll
   const carouselRef = useRef<HTMLDivElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [startX, setStartX] = useState(0);
-  const [scrollLeft, setScrollLeft] = useState(0);
+  const isPointerDownRef = useRef(false);
+  const startXRef = useRef(0);
+  const startScrollLeftRef = useRef(0);
+  const isDraggingRef = useRef(false);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!carouselRef.current) return;
-    setIsDragging(true);
-    setStartX(e.pageX - carouselRef.current.offsetLeft);
-    setScrollLeft(carouselRef.current.scrollLeft);
+    isPointerDownRef.current = true;
+    isDraggingRef.current = false;
+    startXRef.current = e.clientX;
+    startScrollLeftRef.current = carouselRef.current.scrollLeft;
+
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
   };
 
-  const handleMouseLeave = () => setIsDragging(false);
-  const handleMouseUp = () => setIsDragging(false);
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isPointerDownRef.current || !carouselRef.current) return;
+    const deltaX = e.clientX - startXRef.current;
+    if (Math.abs(deltaX) > 3) {
+      isDraggingRef.current = true;
+      carouselRef.current.scrollLeft = startScrollLeftRef.current - deltaX;
+    }
+  };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !carouselRef.current) return;
-    e.preventDefault();
-    const x = e.pageX - carouselRef.current.offsetLeft;
-    const walk = (x - startX) * 2; // scroll speed
-    carouselRef.current.scrollLeft = scrollLeft - walk;
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isPointerDownRef.current) {
+      isPointerDownRef.current = false;
+      try {
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+      } catch {
+        // ignore
+      }
+      setTimeout(() => {
+        isDraggingRef.current = false;
+      }, 50);
+    }
   };
   
   const scrollCarousel = (direction: 'left' | 'right') => {
@@ -291,54 +314,57 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
   return (
     <div className="flex-1 overflow-y-auto pb-24 bg-gray-50 dark:bg-slate-900 min-h-screen transition-colors duration-200">
       
-      {/* Fixed Header */}
-      <div className="sticky top-0 z-50 bg-yellow-400/95 dark:bg-slate-900/95 backdrop-blur-md pt-10 pb-4 px-6 flex justify-between items-center transition-colors duration-200 border-b border-yellow-500/20 dark:border-slate-800 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="bg-white/40 dark:bg-slate-800 p-1.5 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-14 h-14 shrink-0 border border-white/40 dark:border-slate-700">
-            <img src="/rosa.png" alt="Florescer" className="w-full h-full object-cover" />
+      {/* Header Container */}
+      <div className="bg-yellow-400 dark:bg-slate-900 text-yellow-950 dark:text-white rounded-b-3xl shadow-sm transition-colors duration-200 border-b border-yellow-500/20 dark:border-slate-800 overflow-hidden">
+        {/* Top Bar with Logo & Avatar */}
+        <div className="bg-yellow-400 dark:bg-slate-800 px-6 pt-5 pb-2 flex justify-between items-center transition-colors duration-200 border-b border-yellow-950/20 dark:border-slate-700/60">
+          <div className="flex items-center gap-2.5">
+            <div className="bg-white/40 dark:bg-slate-700/80 p-1 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-11 h-11 shrink-0 border border-white/40 dark:border-slate-600">
+              <img src="/images/rosa.png" alt="Florescer" className="w-full h-full object-cover" />
+            </div>
+            <span className="font-serif font-bold text-yellow-950 dark:text-yellow-400 text-xl tracking-tight">Florescer</span>
           </div>
-          <span className="font-serif font-bold text-yellow-950 dark:text-yellow-400 text-2xl tracking-tight">Florescer</span>
+          
+          <button 
+            onClick={() => onChangeTab('profile')} 
+            className="w-11 h-11 rounded-full border-2 border-white/60 dark:border-slate-600 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 dark:bg-slate-700 hover:scale-105 transition-transform shrink-0"
+          >
+            {profile?.photoURL || user?.photoURL ? (
+              <img src={profile?.photoURL || user?.photoURL || ''} alt={userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <span className="text-yellow-900 dark:text-yellow-400 font-bold text-base">{userName.charAt(0).toUpperCase()}</span>
+            )}
+          </button>
         </div>
-        
-        <button 
-          onClick={() => onChangeTab('profile')} 
-          className="w-14 h-14 rounded-full border-2 border-white/60 dark:border-slate-700 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 dark:bg-slate-800 hover:scale-105 transition-transform shrink-0"
-        >
-          {profile?.photoURL || user?.photoURL ? (
-            <img src={profile?.photoURL || user?.photoURL || ''} alt={userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-          ) : (
-            <span className="text-yellow-900 dark:text-yellow-400 font-bold text-lg">{userName.charAt(0).toUpperCase()}</span>
-          )}
-        </button>
-      </div>
 
-      {/* Greeting Area */}
-      <div className="bg-yellow-400 dark:bg-slate-800 text-yellow-950 dark:text-white pt-6 pb-8 px-6 rounded-b-[2rem] shadow-sm transition-colors duration-200 relative z-40 -mt-[1px] border-b border-yellow-500/10 dark:border-slate-700/50">
-        
-        {/* Greeting Text */}
-        <div className="flex justify-between items-start mb-4">
-          <div>
-            <h1 className="text-xl font-bold font-serif mb-1 text-yellow-950 dark:text-white">{getGreeting()}, {userName}!</h1>
-            <div className="flex items-center gap-2 mt-1">
-              <p className="text-yellow-900 dark:text-gray-300 text-sm font-medium leading-tight">Deus preparou algo especial para você hoje.</p>
-              <div className="bg-white/60 dark:bg-slate-700 rounded-full p-1.5 backdrop-blur-md shadow-sm inline-flex shrink-0 text-yellow-950 dark:text-yellow-400">
-                <GreetingIcon />
+        {/* Greeting & Streak Area */}
+        <div className="px-6 pt-3 pb-6">
+          {/* Greeting Text */}
+          <div className="flex justify-between items-start mb-3">
+            <div>
+              <h1 className="text-xl font-bold font-serif mb-0.5 text-yellow-950 dark:text-white">{getGreeting()}, {userName}!</h1>
+              <div className="flex items-center gap-2">
+                <p className="text-yellow-900 dark:text-gray-300 text-sm font-medium leading-tight">Deus preparou algo especial para você hoje.</p>
+                <div className="bg-white/60 dark:bg-slate-800 rounded-full p-1.5 backdrop-blur-md shadow-sm inline-flex shrink-0 text-yellow-950 dark:text-yellow-400">
+                  <GreetingIcon />
+                </div>
               </div>
             </div>
           </div>
-        </div>
-        <div id="tour-streak" className="bg-white/40 dark:bg-slate-700/70 px-4 py-2.5 rounded-xl border border-white/60 dark:border-slate-600/70 backdrop-blur-md shadow-sm flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <Flame className="w-6 h-6 text-orange-500 fill-orange-500 shrink-0 filter drop-shadow-sm" />
-            <p className="text-sm font-semibold text-yellow-950 dark:text-gray-100 truncate">
-              {getJourneyContent().text}
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/60 dark:border-slate-500 bg-white/60 dark:bg-slate-600/80 shadow-xs shrink-0 backdrop-blur-md">
-            <span className="text-base leading-none select-none">{getJourneyContent().emoji}</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-yellow-950 dark:text-yellow-300">
-              {getJourneyContent().label}
-            </span>
+
+          <div id="tour-streak" className="bg-white/40 dark:bg-slate-800/80 px-4 py-2.5 rounded-xl border border-white/60 dark:border-slate-700 backdrop-blur-md shadow-sm flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Flame className="w-6 h-6 text-orange-500 fill-orange-500 shrink-0 filter drop-shadow-sm" />
+              <p className="text-sm font-semibold text-yellow-950 dark:text-gray-100 truncate">
+                {getJourneyContent().text}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/60 dark:border-slate-600 bg-white/60 dark:bg-slate-700/80 shadow-xs shrink-0 backdrop-blur-md">
+              <span className="text-base leading-none select-none">{getJourneyContent().emoji}</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-yellow-950 dark:text-yellow-300">
+                {getJourneyContent().label}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -439,38 +465,13 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
           </div>
           {hasVideo ? (
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden aspect-video relative z-0 transition-colors duration-200">
-              {(dailyData.isExclusive || dailyData.isPremium) && !hasAccess ? (
-                <div 
-                  className="w-full h-full absolute inset-0 cursor-pointer group/lock"
-                  onClick={() => setShowPremiumModal(true)}
-                >
-                  <img 
-                    src={`https://img.youtube.com/vi/${dailyData.videoId}/mqdefault.jpg`} 
-                    alt="Miniatura do Vídeo do Dia" 
-                    className="w-full h-full object-cover opacity-50 transition-opacity group-hover/lock:opacity-40"
-                  />
-                  <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white p-4 text-center backdrop-blur-[2px]">
-                    <div className="w-12 h-12 bg-yellow-500/90 rounded-full flex items-center justify-center mb-3 shadow-lg group-hover/lock:scale-110 transition-transform">
-                      <Lock className="w-6 h-6 text-white" />
-                    </div>
-                    <h3 className="font-bold text-base mb-1 flex items-center gap-1.5">
-                      <Crown className="w-4 h-4 text-amber-300" />
-                      <span>Vídeo Exclusivo VIP</span>
-                    </h3>
-                    <p className="text-xs text-yellow-200 font-medium">Assine o Premium para assistir</p>
-                  </div>
-                </div>
-              ) : (
-                <iframe 
-                  className="w-full h-full absolute inset-0"
-                  src={`https://www.youtube.com/embed/${dailyData.videoId}?rel=0&modestbranding=1`} 
-                  title="Palavra em Vídeo do Dia" 
-                  frameBorder="0" 
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-                  referrerPolicy="strict-origin-when-cross-origin" 
-                  allowFullScreen>
-                </iframe>
-              )}
+              <YouTubeFacade
+                videoId={dailyData.videoId}
+                title="Palavra em Vídeo do Dia"
+                isLocked={(dailyData.isExclusive || dailyData.isPremium) && !hasAccess}
+                isPremium={dailyData.isExclusive || dailyData.isPremium}
+                onLockClick={() => setShowPremiumModal(true)}
+              />
             </div>
           ) : (
             <div className="bg-gray-100 dark:bg-slate-800/50 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 text-center transition-colors duration-200">
@@ -552,11 +553,16 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
               
               <div 
                 ref={carouselRef}
-                onMouseDown={handleMouseDown}
-                onMouseLeave={handleMouseLeave}
-                onMouseUp={handleMouseUp}
-                onMouseMove={handleMouseMove}
-                className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 -mx-5 px-5 snap-x cursor-grab active:cursor-grabbing relative z-0 scroll-smooth"
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onWheel={(e) => {
+                  if (carouselRef.current && e.deltaY !== 0) {
+                    carouselRef.current.scrollLeft += e.deltaY;
+                  }
+                }}
+                className="flex gap-4 overflow-x-auto scrollbar-hide no-scrollbar pb-4 -mx-5 px-5 snap-x cursor-grab active:cursor-grabbing relative z-0 scroll-smooth select-none touch-pan-x"
               >
                 {carouselItems.map((devotional, index) => {
                   const isCurrent = index === 0;

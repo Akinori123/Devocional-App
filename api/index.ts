@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 import { getMessaging } from 'firebase-admin/messaging';
 import { MercadoPagoConfig, Preference, PreApproval, Payment } from 'mercadopago';
 
@@ -13,18 +14,48 @@ dotenv.config();
 // Initialize Firebase Admin (only once)
 if (!getApps().length) {
   const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const projectId = process.env.FIREBASE_PROJECT_ID || 'devocional-app-63871';
+
   if (serviceAccountKey) {
     try {
-      const serviceAccount = JSON.parse(serviceAccountKey);
+      let parsed: any;
+      if (serviceAccountKey.trim().startsWith('{')) {
+        parsed = JSON.parse(serviceAccountKey);
+      } else {
+        const decoded = Buffer.from(serviceAccountKey, 'base64').toString('utf-8');
+        parsed = JSON.parse(decoded);
+      }
       initializeApp({
-        credential: cert(serviceAccount)
+        credential: cert(parsed)
       });
-      console.log('Firebase Admin initialized successfully in API');
-    } catch (error) {
-      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:', error);
+      console.log('Firebase Admin initialized successfully in API via FIREBASE_SERVICE_ACCOUNT_KEY');
+    } catch (error: any) {
+      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY in API:', error?.message || error);
+    }
+  } else if (privateKey && clientEmail) {
+    try {
+      initializeApp({
+        credential: cert({
+          projectId,
+          clientEmail,
+          privateKey: privateKey.replace(/\\n/g, '\n')
+        })
+      });
+      console.log('Firebase Admin initialized successfully in API via privateKey & clientEmail');
+    } catch (credErr: any) {
+      console.error('Failed to initialize Firebase Admin with individual credentials:', credErr?.message || credErr);
     }
   } else {
-    console.warn('FIREBASE_SERVICE_ACCOUNT_KEY environment variable is missing.');
+    try {
+      initializeApp({
+        projectId
+      });
+      console.log(`Firebase Admin initialized with default projectId: ${projectId}`);
+    } catch (e: any) {
+      console.warn('FIREBASE_SERVICE_ACCOUNT_KEY environment variable is missing in API:', e?.message || e);
+    }
   }
 }
 
@@ -312,6 +343,75 @@ app.post("/api/cancel-subscription", async (req, res) => {
   } catch (error: any) {
     console.error("Cancel error:", error);
     res.status(500).json({ error: "Failed to cancel subscription" });
+  }
+});
+
+app.post("/api/delete-account", async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: "UserId is required" });
+
+    const firestore = getFirestore();
+    const userRef = firestore.collection("users").doc(userId);
+    const userDoc = await userRef.get();
+    
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      const subId = userData?.mpSubscriptionId || userData?.lastProcessedSubscriptionId || userData?.subscription_id;
+
+      // 1. CRITICAL FINANCIAL LOGIC: Cancel active recurring subscription on Mercado Pago to avoid orphan charges
+      if (subId && process.env.MERCADOPAGO_ACCESS_TOKEN) {
+        try {
+          const client = new MercadoPagoConfig({ 
+            accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN 
+          });
+          const preApproval = new PreApproval(client);
+          await preApproval.update({
+            id: String(subId),
+            body: { status: "cancelled" }
+          });
+          console.log(`[Delete Account] Mercado Pago subscription ${subId} successfully cancelled for user ${userId}`);
+        } catch (mpError: any) {
+          console.error(`[Delete Account] Note on Mercado Pago subscription cancel for ${subId}:`, mpError?.message || mpError);
+        }
+      }
+
+      // 2. Delete user subcollections in Firestore (devotionals, diaryNotes, savedVerses, favoriteVideos)
+      const subcollections = ['devotionals', 'diaryNotes', 'savedVerses', 'favoriteVideos'];
+      for (const subcol of subcollections) {
+        try {
+          const subSnap = await userRef.collection(subcol).get();
+          if (!subSnap.empty) {
+            const batch = firestore.batch();
+            subSnap.docs.forEach((doc) => {
+              batch.delete(doc.ref);
+            });
+            await batch.commit();
+          }
+        } catch (subErr) {
+          console.warn(`[Delete Account] Error deleting subcollection ${subcol} for ${userId}:`, subErr);
+        }
+      }
+
+      // 3. Delete user document in Firestore
+      await userRef.delete();
+      console.log(`[Delete Account] Firestore user document deleted: ${userId}`);
+    }
+
+    // 4. Delete Firebase Auth user if Admin is available
+    try {
+      if (getApps().length) {
+        await getAuth().deleteUser(userId);
+        console.log(`[Delete Account] Firebase Auth user deleted: ${userId}`);
+      }
+    } catch (authErr: any) {
+      console.log(`[Delete Account] Note on Auth user delete: ${authErr?.message || authErr}`);
+    }
+
+    res.json({ success: true, message: "Conta e dados excluídos com sucesso." });
+  } catch (error: any) {
+    console.error("[Delete Account] Error:", error);
+    res.status(500).json({ error: error?.message || "Failed to delete account" });
   }
 });
 
@@ -611,18 +711,77 @@ app.post("/api/gemini/generate-devotional", handleGenerateDevotional);
 
 const handleExplainVerse = async (req: express.Request, res: express.Response) => {
   try {
-    const { reference, text, bookName, chapter, verseNumbers } = req.body || {};
+    const { reference, text, bookName, bookId, chapter, verseNumbers, cacheDocId: customCacheDocId } = req.body || {};
     const apiKey = process.env.GEMINI_API_KEY;
-
-    if (!apiKey) {
-      return res.status(500).json({ 
-        error: "Chave GEMINI_API_KEY não configurada no servidor ou na Vercel." 
-      });
-    }
 
     if (!reference || !text) {
       return res.status(400).json({ 
         error: "Passagem ou versículo não informado para explicação." 
+      });
+    }
+
+    // Calcula o doc ID padronizado do cache
+    const cleanBookId = (bookId || bookName || reference || 'verse')
+      .toLowerCase()
+      .split(/[\s:]+/)[0]
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/g, '');
+
+    let versesStr = '1';
+    if (Array.isArray(verseNumbers) && verseNumbers.length > 0) {
+      versesStr = verseNumbers.join('-');
+    } else if (typeof verseNumbers === 'string' || typeof verseNumbers === 'number') {
+      versesStr = String(verseNumbers);
+    } else if (reference) {
+      const parts = reference.split(':');
+      if (parts.length > 1) {
+        versesStr = parts[1].replace(/\s+/g, '').replace(/,/g, '-');
+      }
+    }
+
+    const chapterNum = chapter || 1;
+    const cacheDocId = customCacheDocId || `${cleanBookId}_c${chapterNum}_v${versesStr}`;
+
+    // 1. VERIFICAÇÃO PRÉVIA NO CACHE DO FIRESTORE
+    let adminDb: FirebaseFirestore.Firestore | null = null;
+    try {
+      if (getApps().length > 0) {
+        adminDb = getFirestore();
+      }
+    } catch (dbInitErr) {
+      console.warn('[Index Cache] Erro ao obter instância do Firestore Admin:', dbInitErr);
+    }
+
+    if (adminDb && cacheDocId) {
+      try {
+        console.log(`[Index Cache Lookup] Verificando existência de cache em bible_explanations/${cacheDocId}...`);
+        const cacheDoc = await adminDb.collection('bible_explanations').doc(cacheDocId).get();
+        if (cacheDoc.exists) {
+          const cachedData = cacheDoc.data();
+          if (cachedData && (cachedData.context || cachedData.meaning)) {
+            console.log(`[Index Cache HIT ⚡] Resposta recuperada instantaneamente do Firestore para ${cacheDocId}`);
+            return res.status(200).json({
+              reference: cachedData.reference || reference,
+              text: cachedData.text || text,
+              context: cachedData.context || '',
+              meaning: cachedData.meaning || '',
+              practicalApplication: cachedData.practicalApplication || '',
+              shortPrayer: cachedData.shortPrayer || '',
+              cached: true
+            });
+          }
+        } else {
+          console.log(`[Index Cache MISS 💨] Versículo ${cacheDocId} ainda não está em cache. Solicitando ao Gemini...`);
+        }
+      } catch (cacheLookupErr: any) {
+        console.warn(`[Index Cache Lookup Warning] Não foi possível ler cache para ${cacheDocId}:`, cacheLookupErr?.message || cacheLookupErr);
+      }
+    }
+
+    if (!apiKey) {
+      return res.status(500).json({ 
+        error: "Chave GEMINI_API_KEY não configurada no servidor ou na Vercel." 
       });
     }
 
@@ -692,6 +851,42 @@ Mantenha o tom empático, pastoral, acolhedor e edificante em até 3 parágrafos
     }
 
     const parsed = JSON.parse(cleanText);
+
+    // 2. GRAVAÇÃO OBRIGATÓRIA NO FIRESTORE ANTES DE RESPONDER
+    if (adminDb && cacheDocId) {
+      const payloadToSave = {
+        reference: reference || '',
+        text: text || '',
+        bookId: bookId || cleanBookId,
+        bookName: bookName || '',
+        chapter: chapterNum,
+        verseNumbers: Array.isArray(verseNumbers) ? verseNumbers : [1],
+        context: parsed.context || '',
+        meaning: parsed.meaning || '',
+        practicalApplication: parsed.practicalApplication || '',
+        shortPrayer: parsed.shortPrayer || '',
+        createdAt: new Date().toISOString(),
+        source: 'gemini-api'
+      };
+
+      try {
+        console.log(`[Index Firestore Cache Save] Gravando obrigatoriamente no Firestore (coleção: bible_explanations, doc: ${cacheDocId})...`);
+        const startTime = Date.now();
+        await adminDb.collection('bible_explanations').doc(cacheDocId).set(payloadToSave, { merge: true });
+        const durationMs = Date.now() - startTime;
+        console.log(`[Index Firestore Cache Save SUCESSO ✅] Versículo ${cacheDocId} gravado com sucesso no Firestore em ${durationMs}ms`);
+      } catch (saveErr: any) {
+        console.error(`[Index Firestore Cache Save ERRO ❌] Falha crítica ao gravar bible_explanations/${cacheDocId}:`, {
+          code: saveErr?.code || 'UNKNOWN_CODE',
+          message: saveErr?.message || saveErr,
+          details: saveErr?.details || null,
+          stack: saveErr?.stack || null
+        });
+      }
+    } else {
+      console.warn(`[Index Firestore Cache Save ALERTA ⚠️] Firestore Admin não disponível ou cacheDocId inválido:`, { hasAdminDb: !!adminDb, cacheDocId });
+    }
+
     return res.status(200).json(parsed);
   } catch (error: any) {
     console.error("Error in /api/gemini/explain-verse:", error);

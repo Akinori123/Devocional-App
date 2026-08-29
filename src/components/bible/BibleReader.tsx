@@ -572,9 +572,11 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
       const payload = JSON.stringify({
         reference,
         text,
+        bookId: book.id,
         bookName: book.name,
         chapter,
-        verseNumbers: sortedVerseNumbers
+        verseNumbers: sortedVerseNumbers,
+        cacheDocId
       });
 
       let res: Response;
@@ -639,8 +641,9 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
         shortPrayer: data.shortPrayer || ''
       });
 
-      // Salva no Firestore para que NENHUM outro usuário pague por este versículo novamente
+      // Dupla garantia: Tenta salvar no Firestore pelo cliente caso a API backend tenha sido executada sem permissão de escrita
       try {
+        console.log(`[BibleReader] Gravando cache no Firestore via cliente: bible_explanations/${cacheDocId}`);
         await setDoc(cacheRef, {
           reference,
           text,
@@ -654,13 +657,18 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
           shortPrayer: data.shortPrayer || '',
           createdAt: new Date().toISOString(),
           cachedBy: user?.uid || 'anonymous'
-        });
+        }, { merge: true });
+        console.log(`[BibleReader] Cache cliente gravado com sucesso: ${cacheDocId}`);
       } catch (saveCacheErr) {
-        console.warn('Erro ao salvar explicação no cache do Firestore:', saveCacheErr);
+        console.warn('[BibleReader] Aviso ao salvar explicação no cache do Firestore via cliente:', saveCacheErr);
       }
 
-      // Registra consumo da API do Gemini
-      recordApiUsage('gemini');
+      // Registra consumo ou economia de cache
+      if (data.cached) {
+        recordApiUsage('cache_hit');
+      } else {
+        recordApiUsage('gemini');
+      }
     } catch (err: any) {
       console.error("AI Explanation error:", err);
       let displayMessage = err.message || 'Não foi possível consultar o Teólogo. Tente novamente.';

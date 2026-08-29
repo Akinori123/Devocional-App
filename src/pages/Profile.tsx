@@ -1,21 +1,24 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ProfileHeader } from '../components/profile/ProfileHeader';
 import { DiaryTab } from '../components/profile/DiaryTab';
 import { SavedVersesTab } from '../components/profile/SavedVersesTab';
 import { SubscriptionTab } from '../components/profile/SubscriptionTab';
-
+import { FavoriteVideosTab } from '../components/profile/FavoriteVideosTab';
 import { SettingsTab } from '../components/profile/SettingsTab';
+import { VipVideoBanner } from '../components/video/VipVideoBanner';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
-import { MessageCircle, Mail, X } from 'lucide-react';
+import { MessageCircle, Mail, Heart, Bookmark, Settings, Sparkles } from 'lucide-react';
+import { TabType } from '../types';
 
-type ProfileTab = 'diary' | 'verses' | 'subscription' | 'settings';
+export type ProfileTab = 'diary' | 'verses' | 'videos' | 'subscription' | 'settings';
 
 interface ProfileProps {
   initialTab?: ProfileTab;
+  onChangeTab?: (tab: TabType, subTab?: ProfileTab) => void;
 }
 
-export function Profile({ initialTab = 'diary' }: ProfileProps = {}) {
+export function Profile({ initialTab = 'diary', onChangeTab }: ProfileProps = {}) {
   const [activeTab, setActiveTab] = useState<ProfileTab>(initialTab);
   const prevInitialTabRef = useRef(initialTab);
 
@@ -25,51 +28,77 @@ export function Profile({ initialTab = 'diary' }: ProfileProps = {}) {
       setActiveTab(initialTab);
     }
   }, [initialTab]);
+  
   const [showSupportModal, setShowSupportModal] = useState(false);
   const { user } = useAuth();
   
-  // Carousel Drag to Scroll
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [startX, setStartX] = useState(0);
-  const [scrollLeft, setScrollLeft] = useState(0);
+  // Carousel Drag to Scroll on PC & Mouse
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const isMouseDownRef = useRef(false);
+  const startXRef = useRef(0);
+  const startScrollLeftRef = useRef(0);
+  const hasMovedRef = useRef(false);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (!scrollRef.current) return;
-    setIsDragging(true);
-    setStartX(e.pageX - scrollRef.current.offsetLeft);
-    setScrollLeft(scrollRef.current.scrollLeft);
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    isMouseDownRef.current = true;
+    hasMovedRef.current = false;
+    startXRef.current = e.clientX;
+    startScrollLeftRef.current = tabsContainerRef.current?.scrollLeft || 0;
   };
 
-  const handleMouseLeave = () => setIsDragging(false);
-  const handleMouseUp = () => setIsDragging(false);
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !scrollRef.current) return;
-    e.preventDefault();
-    const x = e.pageX - scrollRef.current.offsetLeft;
-    const walk = (x - startX) * 2; // scroll speed
-    scrollRef.current.scrollLeft = scrollLeft - walk;
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isMouseDownRef.current || !tabsContainerRef.current) return;
+    const deltaX = e.clientX - startXRef.current;
+    if (Math.abs(deltaX) > 4) {
+      hasMovedRef.current = true;
+      tabsContainerRef.current.scrollLeft = startScrollLeftRef.current - deltaX;
+    }
+  };
+
+  const handleMouseUp = () => {
+    isMouseDownRef.current = false;
+    setTimeout(() => {
+      hasMovedRef.current = false;
+    }, 100);
+  };
+
+  const handleTabClick = (tab: ProfileTab) => {
+    if (hasMovedRef.current) return;
+    setActiveTab(tab);
   };
   
   return (
-    <div className="flex-1 flex flex-col bg-gray-50 dark:bg-slate-900 min-h-screen pb-20 transition-colors duration-200">
+    <div className="flex-1 flex flex-col bg-gray-50 dark:bg-slate-900 min-h-screen pb-24 transition-colors duration-200">
       <ProfileHeader />
+
+      {/* VIP Video Banner Shortcut at Profile Top */}
+      <div className="px-5 pt-3">
+        <VipVideoBanner 
+          onClick={() => onChangeTab?.('videoHistory')} 
+          variant="compact"
+        />
+      </div>
       
-      {/* Tab Navigation */}
-      <div className="bg-white dark:bg-slate-900 px-5 pt-4 border-b border-gray-200 dark:border-slate-800 shrink-0 transition-colors duration-200">
+      {/* Tab Navigation with Drag-to-Scroll & Wheel Scroll */}
+      <div className="bg-white dark:bg-slate-900 px-3 pt-3 border-b border-gray-200 dark:border-slate-800 shrink-0 transition-colors duration-200 mt-2">
         <div 
-          ref={scrollRef}
+          ref={tabsContainerRef}
           onMouseDown={handleMouseDown}
-          onMouseLeave={handleMouseLeave}
-          onMouseUp={handleMouseUp}
           onMouseMove={handleMouseMove}
-          className="flex gap-6 overflow-x-auto scrollbar-hide cursor-grab active:cursor-grabbing"
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onWheel={(e) => {
+            if (tabsContainerRef.current && e.deltaY !== 0) {
+              tabsContainerRef.current.scrollLeft += e.deltaY;
+            }
+          }}
+          className="flex gap-5 overflow-x-auto scrollbar-hide no-scrollbar cursor-grab active:cursor-grabbing select-none px-1"
         >
           <button
-            onClick={() => setActiveTab('diary')}
+            onClick={() => handleTabClick('diary')}
             className={cn(
-              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap",
-              activeTab === 'diary' ? "text-yellow-500 dark:text-yellow-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap shrink-0 cursor-pointer",
+              activeTab === 'diary' ? "text-yellow-500 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             )}
           >
             Diário
@@ -79,10 +108,10 @@ export function Profile({ initialTab = 'diary' }: ProfileProps = {}) {
           </button>
 
           <button
-            onClick={() => setActiveTab('verses')}
+            onClick={() => handleTabClick('verses')}
             className={cn(
-              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap",
-              activeTab === 'verses' ? "text-yellow-500 dark:text-yellow-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap shrink-0 cursor-pointer",
+              activeTab === 'verses' ? "text-yellow-500 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             )}
           >
             Versos Salvos
@@ -90,11 +119,26 @@ export function Profile({ initialTab = 'diary' }: ProfileProps = {}) {
               <div className="absolute bottom-0 left-0 w-full h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
             )}
           </button>
+
           <button
-            onClick={() => setActiveTab('subscription')}
+            onClick={() => handleTabClick('videos')}
             className={cn(
-              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap",
-              activeTab === 'subscription' ? "text-yellow-500 dark:text-yellow-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap flex items-center gap-1.5 shrink-0 cursor-pointer",
+              activeTab === 'videos' ? "text-yellow-500 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+            )}
+          >
+            <Heart className={cn("w-3.5 h-3.5", activeTab === 'videos' ? "fill-yellow-500 text-yellow-500" : "text-gray-400")} />
+            Vídeos Favoritos
+            {activeTab === 'videos' && (
+              <div className="absolute bottom-0 left-0 w-full h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
+            )}
+          </button>
+
+          <button
+            onClick={() => handleTabClick('subscription')}
+            className={cn(
+              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap shrink-0 cursor-pointer",
+              activeTab === 'subscription' ? "text-yellow-500 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             )}
           >
             Assinatura
@@ -102,11 +146,12 @@ export function Profile({ initialTab = 'diary' }: ProfileProps = {}) {
               <div className="absolute bottom-0 left-0 w-full h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
             )}
           </button>
+
           <button
-            onClick={() => setActiveTab('settings')}
+            onClick={() => handleTabClick('settings')}
             className={cn(
-              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap",
-              activeTab === 'settings' ? "text-yellow-500 dark:text-yellow-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap shrink-0 cursor-pointer",
+              activeTab === 'settings' ? "text-yellow-500 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             )}
           >
             Configurações
@@ -119,9 +164,15 @@ export function Profile({ initialTab = 'diary' }: ProfileProps = {}) {
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto">
-        <div className="min-h-[60vh]">
+        <div className="min-h-[50vh]">
           {activeTab === 'diary' && <DiaryTab />}
           {activeTab === 'verses' && <SavedVersesTab />}
+          {activeTab === 'videos' && (
+            <FavoriteVideosTab 
+              onGoToPremium={() => setActiveTab('subscription')}
+              onExploreVideos={() => onChangeTab?.('videoHistory')}
+            />
+          )}
           {activeTab === 'subscription' && <SubscriptionTab />}
           {activeTab === 'settings' && <SettingsTab />}
         </div>
@@ -158,59 +209,31 @@ export function Profile({ initialTab = 'diary' }: ProfileProps = {}) {
       {showSupportModal && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-sm shadow-xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center bg-gray-50/50 dark:bg-slate-800/50">
-              <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <MessageCircle className="w-5 h-5 text-[#25D366]" />
-                Atendimento via WhatsApp
-              </h3>
-              <button 
-                onClick={() => setShowSupportModal(false)}
-                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="p-5 flex flex-col gap-3">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                Escolha um de nossos números de atendimento para falar com nossa equipe:
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center mx-auto mb-4">
+                <MessageCircle className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Suporte Florescer</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                Fale diretamente conosco pelo WhatsApp para tirar dúvidas sobre sua assinatura ou o aplicativo.
               </p>
               
-              <a
-                href="https://wa.me/5542999795021"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setShowSupportModal(false)}
-                className="w-full bg-white dark:bg-slate-800 border-2 border-[#25D366] hover:bg-[#25D366] hover:text-white group text-gray-800 dark:text-gray-200 font-bold py-3 px-4 rounded-xl flex justify-between items-center transition-all shadow-sm"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-[#25D366]/10 flex items-center justify-center group-hover:bg-white/20 transition-colors">
-                    <MessageCircle className="w-4 h-4 text-[#25D366] group-hover:text-white" />
-                  </div>
-                  <div className="flex flex-col text-left">
-                    <span>Atendimento 1</span>
-                    <span className="text-xs font-normal opacity-80">(42) 99979-5021</span>
-                  </div>
-                </div>
-              </a>
-              
-              <a
-                href="https://wa.me/5542999657408"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setShowSupportModal(false)}
-                className="w-full bg-white dark:bg-slate-800 border-2 border-[#25D366] hover:bg-[#25D366] hover:text-white group text-gray-800 dark:text-gray-200 font-bold py-3 px-4 rounded-xl flex justify-between items-center transition-all shadow-sm"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-[#25D366]/10 flex items-center justify-center group-hover:bg-white/20 transition-colors">
-                    <MessageCircle className="w-4 h-4 text-[#25D366] group-hover:text-white" />
-                  </div>
-                  <div className="flex flex-col text-left">
-                    <span>Atendimento 2</span>
-                    <span className="text-xs font-normal opacity-80">(42) 99965-7408</span>
-                  </div>
-                </div>
-              </a>
+              <div className="flex flex-col gap-3">
+                <a
+                  href="https://wa.me/5511999999999"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-[#25D366] hover:bg-[#1ebe57] text-white font-bold py-3 px-4 rounded-xl flex justify-center items-center gap-2 transition-colors shadow-sm"
+                >
+                  Abrir WhatsApp
+                </a>
+                <button
+                  onClick={() => setShowSupportModal(false)}
+                  className="w-full py-3 text-sm font-semibold text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+                >
+                  Fechar
+                </button>
+              </div>
             </div>
           </div>
         </div>

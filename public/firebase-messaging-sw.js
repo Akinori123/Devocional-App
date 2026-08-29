@@ -24,8 +24,8 @@ messaging.onBackgroundMessage((payload) => {
     const notificationTitle = payload.data?.title || 'Florescer Devocional';
     const notificationOptions = {
       body: payload.data?.body || 'Um novo versículo e reflexão esperam por você hoje.',
-      icon: '/rosa.png',
-      badge: '/rosa.png',
+      icon: '/images/rosa.png',
+      badge: '/images/rosa.png',
       tag: payload.data?.tag || 'florescer-daily-push',
       renotify: false,
       data: {

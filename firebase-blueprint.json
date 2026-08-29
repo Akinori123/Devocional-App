@@ -62,6 +62,24 @@
         { "name": "webhookLastEvent", "type": "string" }
       ],
       "description": "Webhook destination for Stripe/payment provider subscription updates."
+    },
+    {
+      "name": "bible_explanations",
+      "documentId": "explanationId",
+      "fields": [
+        { "name": "reference", "type": "string" },
+        { "name": "text", "type": "string" },
+        { "name": "bookId", "type": "string" },
+        { "name": "bookName", "type": "string" },
+        { "name": "chapter", "type": "number" },
+        { "name": "verseNumbers", "type": "array" },
+        { "name": "context", "type": "string" },
+        { "name": "meaning", "type": "string" },
+        { "name": "practicalApplication", "type": "string" },
+        { "name": "shortPrayer", "type": "string" },
+        { "name": "createdAt", "type": "string" }
+      ],
+      "description": "Global persistent cache for AI-generated Bible verse explanations."
     }
   ]
 }

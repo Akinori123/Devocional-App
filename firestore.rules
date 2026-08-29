@@ -43,6 +43,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /bible_explanations/{explanationId} {
+      allow read: if true;
+      allow write: if isAuthenticated() || isAdmin();
+    }
+
     match /user_progress/{progressId} {
       allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
       allow write: if isAuthenticated() && request.resource.data.userId == request.auth.uid;

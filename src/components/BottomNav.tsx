@@ -58,7 +58,8 @@ export function BottomNav({ currentTab, onChangeTab }: BottomNavProps) {
 
   return (
     <nav className={cn(
-      "fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-slate-800 pb-safe z-40 transition-all duration-300 ease-in-out",
+      "fixed bottom-0 left-1/2 -translate-x-1/2 w-full bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-slate-800 pb-safe z-40 transition-all duration-300 ease-in-out",
+      currentTab === 'usersAdmin' ? "max-w-md lg:max-w-4xl xl:max-w-5xl" : "max-w-md",
       isVisible ? "translate-y-0 opacity-100" : "translate-y-full opacity-0"
     )}>
       <div className="flex justify-around items-center h-16">

@@ -95,7 +95,7 @@ export function Onboarding() {
   const renderWelcome = () => (
     <div className="flex flex-col items-center justify-center h-full px-8 text-center animate-in fade-in zoom-in-95 duration-500">
       <div className="w-40 h-40 mb-8 relative">
-        <img src="/logo.png?v=2" alt="Florescer Devocional Logo" className="w-full h-full object-contain" />
+        <img src="/images/logo.png?v=2" alt="Florescer Devocional Logo" className="w-full h-full object-contain" />
       </div>
       <h1 className="text-3xl font-bold font-serif text-gray-900 dark:text-gray-100 mb-4">Que bom ter você aqui!</h1>
       <p className="text-gray-600 dark:text-gray-400 mb-8 leading-relaxed">
@@ -266,7 +266,7 @@ export function Onboarding() {
   const renderAuth = () => (
     <div className="flex flex-col justify-center h-full px-8 animate-in fade-in">
       <div className="w-28 h-28 mx-auto mb-6 relative">
-        <img src="/logo.png?v=2" alt="Florescer Devocional Logo" className="w-full h-full object-contain" />
+        <img src="/images/logo.png?v=2" alt="Florescer Devocional Logo" className="w-full h-full object-contain" />
       </div>
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold text-gray-900 mb-2">

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useSettings } from '../../context/SettingsContext';
 import { useAuth } from '../../context/AuthContext';
-import { Moon, Sun, User as UserIcon, Trash2, Edit2, X, Loader2, Camera, Bell } from 'lucide-react';
+import { Moon, Sun, User as UserIcon, Trash2, Edit2, X, Loader2, Camera, Bell, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { db, auth } from '../../lib/firebase';
 import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { deleteUser } from 'firebase/auth';
@@ -48,6 +48,7 @@ export function SettingsTab() {
   
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
@@ -121,30 +122,57 @@ export function SettingsTab() {
   };
 
   const handleDeleteAccount = async () => {
-    if (!user) return;
+    if (!user || deleteConfirmationText.trim().toUpperCase() !== 'EXCLUIR') return;
     try {
       setIsDeleting(true);
-      // Delete user document in Firestore first
-      const userRef = doc(db, 'users', user.uid);
-      await deleteDoc(userRef);
-      // Note: In a real production app with many collections, you would use a Cloud Function or batch to delete user data
+
+      // 1. Chamar o backend para cancelar assinatura ativa no Mercado Pago e limpar registros
+      try {
+        const response = await fetch('/api/delete-account', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.uid })
+        });
+        if (!response.ok) {
+          console.warn('Backend delete-account responded with non-200 status');
+        }
+      } catch (apiErr) {
+        console.warn('Backend delete-account call notice:', apiErr);
+      }
+
+      // 2. Apagar documento do usuário no Firestore caso ainda exista
+      try {
+        const userRef = doc(db, 'users', user.uid);
+        await deleteDoc(userRef);
+      } catch (fsErr) {
+        console.warn('Firestore user doc cleanup notice:', fsErr);
+      }
       
-      // Delete Auth user
-      await deleteUser(user);
+      // 3. Apagar usuário no Firebase Auth
+      try {
+        await deleteUser(user);
+      } catch (authError: any) {
+        if (authError.code === 'auth/requires-recent-login') {
+          toast.error('Por segurança, faça login novamente antes de concluir a exclusão.');
+          await logout();
+          return;
+        }
+        console.warn('Client auth user deletion notice:', authError);
+      }
       
-      // Will trigger onAuthStateChanged to logout automatically, but just in case:
+      toast.success('Sua conta foi excluída com sucesso.');
       await logout();
     } catch (error: any) {
       console.error('Error deleting account:', error);
-      if (error.code === 'auth/requires-recent-login') {
-        toast.success('Por segurança, faça login novamente antes de excluir sua conta.');
-        await logout();
-      } else {
-        toast.error('Não foi possível excluir a conta. Tente novamente.');
-      }
+      toast.error('Não foi possível excluir a conta. Tente novamente.');
+    } finally {
       setIsDeleting(false);
+      setShowDeleteConfirm(false);
+      setDeleteConfirmationText('');
     }
   };
+
+  const isDeleteButtonEnabled = deleteConfirmationText.trim().toUpperCase() === 'EXCLUIR';
 
   return (
     <div className="p-5 space-y-6">
@@ -160,7 +188,7 @@ export function SettingsTab() {
           
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className="flex items-center gap-2 px-4 py-2 bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded-xl font-medium transition-colors hover:bg-yellow-100 dark:hover:bg-yellow-900/50"
+            className="flex items-center gap-2 px-4 py-2 bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded-xl font-medium transition-colors hover:bg-yellow-100 dark:hover:bg-yellow-900/50 cursor-pointer"
           >
             {theme === 'dark' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
             {theme === 'dark' ? 'Escuro' : 'Claro'}
@@ -237,7 +265,7 @@ export function SettingsTab() {
                 setEditNeedArea(profile?.needArea || '');
                 setIsEditingProfile(true);
               }}
-              className="text-sm font-semibold text-yellow-500 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-300"
+              className="text-sm font-semibold text-yellow-500 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-300 cursor-pointer"
             >
               Editar
             </button>
@@ -254,8 +282,11 @@ export function SettingsTab() {
               </div>
             </div>
             <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="px-4 py-2 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-semibold rounded-xl hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-sm"
+              onClick={() => {
+                setDeleteConfirmationText('');
+                setShowDeleteConfirm(true);
+              }}
+              className="px-4 py-2 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-semibold rounded-xl hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-sm cursor-pointer"
             >
               Excluir
             </button>
@@ -269,7 +300,7 @@ export function SettingsTab() {
           <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl relative animate-in fade-in zoom-in duration-200">
             <button 
               onClick={() => setIsEditingProfile(false)}
-              className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 bg-gray-50 dark:bg-slate-800 rounded-full transition-colors"
+              className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 bg-gray-50 dark:bg-slate-800 rounded-full transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -297,7 +328,7 @@ export function SettingsTab() {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploadingPhoto}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-xl transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-xl transition-colors cursor-pointer"
               >
                 <Camera className="w-4 h-4" />
                 Trocar Foto
@@ -335,7 +366,7 @@ export function SettingsTab() {
               <button
                 onClick={handleSaveProfile}
                 disabled={isSaving || !editName.trim()}
-                className="w-full bg-yellow-500 hover:bg-yellow-700 text-white font-semibold py-3.5 rounded-xl transition-all disabled:opacity-70 mt-2 flex justify-center items-center gap-2"
+                className="w-full bg-yellow-500 hover:bg-yellow-700 text-white font-semibold py-3.5 rounded-xl transition-all disabled:opacity-70 mt-2 flex justify-center items-center gap-2 cursor-pointer"
               >
                 {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Salvar Alterações'}
               </button>
@@ -344,32 +375,92 @@ export function SettingsTab() {
         </div>
       )}
 
-      {/* Modal Excluir Conta (Confirmação Dupla) */}
+      {/* Modal Zona de Perigo (Danger Zone) - Confirmação Forte com Proteção Financeira */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl relative animate-in fade-in zoom-in duration-200">
-            <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mb-4 mx-auto">
-              <Trash2 className="w-6 h-6" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 sm:p-7 shadow-2xl relative border border-red-200/60 dark:border-red-900/40 animate-in zoom-in-95 duration-200">
+            <button 
+              onClick={() => {
+                if (!isDeleting) {
+                  setShowDeleteConfirm(false);
+                  setDeleteConfirmationText('');
+                }
+              }}
+              disabled={isDeleting}
+              className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 bg-gray-100 dark:bg-slate-800 rounded-full transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Ícone de Perigo */}
+            <div className="w-14 h-14 bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 rounded-2xl flex items-center justify-center mb-4 mx-auto border border-red-200 dark:border-red-900/60 shadow-sm">
+              <ShieldAlert className="w-8 h-8" />
             </div>
-            <h2 className="text-xl font-bold font-serif text-gray-900 dark:text-white text-center mb-2">Zona de Perigo</h2>
-            <p className="text-gray-600 dark:text-gray-400 text-center text-sm mb-6">
-              Você tem certeza que deseja excluir sua conta? <strong>Esta ação é irreversível</strong> e todos os seus dados e devocionais salvos serão perdidos.
+
+            <h2 className="text-xl font-bold font-serif text-gray-900 dark:text-white text-center mb-2">
+              Zona de Perigo: Excluir Conta
+            </h2>
+
+            {/* Box de Alerta Financeiro Crítico */}
+            <div className="my-4 p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-xs sm:text-sm text-amber-900 dark:text-amber-200 leading-relaxed">
+                <strong>Atenção:</strong> Esta ação é irreversível. Se você for um usuário VIP, sua assinatura no cartão será cancelada imediatamente e os dias restantes de PIX serão perdidos.
+              </p>
+            </div>
+
+            <p className="text-xs text-gray-600 dark:text-gray-400 text-center mb-5 leading-relaxed">
+              Todos os seus devocionais salvos, notas do diário, versículos favoritos e histórico serão permanentemente excluídos do banco de dados.
             </p>
             
+            {/* Input de Confirmação Obrigatória */}
+            <div className="mb-5 space-y-2">
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
+                Para confirmar a exclusão definitiva, digite <strong className="text-red-600 dark:text-red-400">EXCLUIR</strong> abaixo:
+              </label>
+              <input
+                type="text"
+                autoCapitalize="characters"
+                value={deleteConfirmationText}
+                onChange={(e) => setDeleteConfirmationText(e.target.value)}
+                placeholder="Digite EXCLUIR para confirmar"
+                disabled={isDeleting}
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800/90 border border-gray-300 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all uppercase tracking-wider"
+              />
+            </div>
+
             <div className="space-y-3">
               <button
                 onClick={handleDeleteAccount}
-                disabled={isDeleting}
-                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 rounded-xl transition-all disabled:opacity-70 flex justify-center items-center gap-2"
+                disabled={!isDeleteButtonEnabled || isDeleting}
+                className={`w-full font-bold py-3.5 rounded-xl transition-all flex justify-center items-center gap-2 text-sm shadow-md ${
+                  isDeleteButtonEnabled && !isDeleting
+                    ? 'bg-red-600 hover:bg-red-700 text-white cursor-pointer hover:shadow-red-600/20'
+                    : 'bg-gray-200 dark:bg-slate-800 text-gray-400 dark:text-gray-600 cursor-not-allowed border border-gray-300/40 dark:border-slate-700/50'
+                }`}
               >
-                {isDeleting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sim, excluir minha conta'}
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Cancelando assinaturas e excluindo...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Deletar Minha Conta</span>
+                  </>
+                )}
               </button>
+
               <button
-                onClick={() => setShowDeleteConfirm(false)}
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeleteConfirmationText('');
+                }}
                 disabled={isDeleting}
-                className="w-full bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-900 dark:text-white font-semibold py-3.5 rounded-xl transition-all"
+                className="w-full bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-800 dark:text-gray-200 font-semibold py-3 rounded-xl transition-all text-sm cursor-pointer"
               >
-                Cancelar
+                Cancelar e Voltar
               </button>
             </div>
           </div>
@@ -388,7 +479,7 @@ export function SettingsTab() {
             </p>
             <button
               onClick={() => setShowPushModal(false)}
-              className="w-full bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-900 dark:text-white font-bold py-3 rounded-xl transition-colors"
+              className="w-full bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-900 dark:text-white font-bold py-3 rounded-xl transition-colors cursor-pointer"
             >
               Entendi
             </button>

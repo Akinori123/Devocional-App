@@ -160,10 +160,10 @@ export function BibleBookList({ onSelectBook, onSelectDirectChapter, onChangeTab
                 <div className="flex items-center gap-3.5 min-w-0 flex-1 mr-3">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-transform ${
                     isMastered 
-                      ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 shadow-sm ring-1 ring-amber-300 dark:ring-amber-600'
+                      ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-300 shadow-xs ring-1 ring-amber-300 dark:ring-amber-500/60'
                       : completedCount > 0
-                        ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400'
-                        : 'bg-gray-100 dark:bg-slate-700/70 text-gray-500 dark:text-gray-400'
+                        ? 'bg-yellow-100 dark:bg-yellow-950/80 text-yellow-600 dark:text-yellow-300 ring-1 ring-yellow-300 dark:ring-yellow-500/60'
+                        : 'bg-gray-100 dark:bg-slate-700/90 text-gray-600 dark:text-amber-300/90 border border-gray-200/60 dark:border-slate-600'
                   }`}>
                     {isMastered ? (
                       <Crown className="w-5 h-5 fill-amber-500/20" />
@@ -190,7 +190,7 @@ export function BibleBookList({ onSelectBook, onSelectDirectChapter, onChangeTab
                           {completedCount} de {book.chapters} capítulos ({progressPercent}%)
                         </span>
                       ) : (
-                        <span className="text-xs text-gray-400 dark:text-gray-500">
+                        <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
                           {book.chapters} {book.chapters === 1 ? 'capítulo' : 'capítulos'}
                         </span>
                       )}
@@ -217,7 +217,7 @@ export function BibleBookList({ onSelectBook, onSelectDirectChapter, onChangeTab
                       Concluído
                     </span>
                   ) : (
-                    <ChevronRight className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                    <ChevronRight className="w-4 h-4 text-gray-400 dark:text-gray-300" />
                   )}
                 </div>
               </button>
@@ -230,39 +230,45 @@ export function BibleBookList({ onSelectBook, onSelectDirectChapter, onChangeTab
 
   return (
     <div className="pb-24">
-      {/* Header with search */}
-      <div className="sticky top-0 z-50 bg-yellow-400/95 dark:bg-slate-900/95 backdrop-blur-md pt-10 pb-6 px-6 text-yellow-950 dark:text-white shadow-sm rounded-b-3xl transition-colors duration-200 border-b border-yellow-500/20 dark:border-slate-800">
-        <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center gap-3">
-            <div className="bg-white/40 dark:bg-slate-800 p-1.5 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-14 h-14 shrink-0 border border-white/40 dark:border-slate-700">
-              <img src="/rosa.png" alt="Florescer" className="w-full h-full object-cover" />
+      {/* Header (scrolls naturally with page) */}
+      <div className="bg-yellow-400 dark:bg-slate-900 text-yellow-950 dark:text-white shadow-sm rounded-b-3xl transition-colors duration-200 border-b border-yellow-500/20 dark:border-slate-800 overflow-hidden">
+        {/* Top Bar with Logo & Avatar */}
+        <div className="bg-yellow-400 dark:bg-slate-800 px-6 pt-5 pb-2 flex justify-between items-center transition-colors duration-200 border-b border-yellow-950/20 dark:border-slate-700/60">
+          <div className="flex items-center gap-2.5">
+            <div className="bg-white/40 dark:bg-slate-700/80 p-1 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-11 h-11 shrink-0 border border-white/40 dark:border-slate-600">
+              <img src="/images/rosa.png" alt="Florescer" className="w-full h-full object-cover" />
             </div>
-            <span className="font-serif font-bold text-yellow-950 dark:text-yellow-400 text-2xl tracking-tight">Florescer</span>
+            <span className="font-serif font-bold text-yellow-950 dark:text-yellow-400 text-xl tracking-tight">Florescer</span>
           </div>
           
           <button 
             onClick={() => onChangeTab?.('profile')} 
-            className="w-14 h-14 rounded-full border-2 border-white/60 dark:border-slate-700 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 dark:bg-slate-800 hover:scale-105 transition-transform shrink-0"
+            className="w-11 h-11 rounded-full border-2 border-white/60 dark:border-slate-600 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 dark:bg-slate-700 hover:scale-105 transition-transform shrink-0"
           >
             {profile?.photoURL || user?.photoURL ? (
               <img src={profile?.photoURL || user?.photoURL || ''} alt={userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
             ) : (
-              <span className="text-yellow-900 dark:text-yellow-400 font-bold text-lg">{userName.charAt(0).toUpperCase()}</span>
+              <span className="text-yellow-900 dark:text-yellow-400 font-bold text-base">{userName.charAt(0).toUpperCase()}</span>
             )}
           </button>
         </div>
 
-        <h1 className="text-2xl font-bold font-serif mb-1 text-yellow-950 dark:text-white">Bíblia Sagrada</h1>
-        <p className="text-yellow-900 dark:text-gray-300 text-sm mb-4">Acompanhe seu progresso e mergulhe nas Escrituras.</p>
-        
-        <div className="relative shadow-sm rounded-xl">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
+        <div className="px-6 pt-3 pb-5">
+          <h1 className="text-2xl font-bold font-serif mb-0.5 text-yellow-950 dark:text-white">Bíblia Sagrada</h1>
+          <p className="text-yellow-900 dark:text-gray-300 text-sm">Acompanhe seu progresso e mergulhe nas Escrituras.</p>
+        </div>
+      </div>
+
+      {/* Sticky Search Bar Container */}
+      <div className="sticky top-0 z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-5 py-2.5 border-b border-gray-100 dark:border-slate-800 shadow-xs transition-colors duration-200">
+        <div className="relative shadow-xs rounded-xl">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500 pointer-events-none" />
           <input
             type="text"
             placeholder="Buscar livro (ex: Mateus, Filemon, Salmos)..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-white dark:bg-slate-800 border-transparent text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 transition-all text-sm shadow-xs"
+            className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:bg-white dark:focus:bg-slate-800 transition-all text-sm"
           />
           {searchQuery && (
             <button
@@ -323,7 +329,7 @@ export function BibleBookList({ onSelectBook, onSelectDirectChapter, onChangeTab
             {/* Gamification Stats Overview */}
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-gray-200 dark:border-slate-700 shadow-xs flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400 flex items-center justify-center shrink-0">
+                <div className="w-9 h-9 rounded-lg bg-yellow-100 dark:bg-yellow-950/70 text-yellow-600 dark:text-yellow-300 flex items-center justify-center shrink-0 border border-yellow-200/50 dark:border-yellow-700/50">
                   <BookOpen className="w-4 h-4" />
                 </div>
                 <div>
@@ -335,7 +341,7 @@ export function BibleBookList({ onSelectBook, onSelectDirectChapter, onChangeTab
               </div>
 
               <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-gray-200 dark:border-slate-700 shadow-xs flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <div className="w-9 h-9 rounded-lg bg-amber-100 dark:bg-amber-950/70 text-amber-600 dark:text-amber-300 flex items-center justify-center shrink-0 border border-amber-200/50 dark:border-amber-700/50">
                   <Crown className="w-4 h-4" />
                 </div>
                 <div>

@@ -9,6 +9,7 @@ import { getJourneyStatus } from '../../utils/journey';
 import { getThemeStyle } from '../../utils/themeStyle';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { VipVideoBanner } from '../video/VipVideoBanner';
 
 interface JourneyListProps {
   onSelectDevotional: (devotional: DevotionalItem, allRead: boolean) => void;
@@ -110,30 +111,31 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
   return (
     <div className="pb-36 min-h-screen bg-gray-50 dark:bg-slate-900 flex flex-col relative transition-colors duration-200">
       {/* Header */}
-      <div className="sticky top-0 bg-yellow-400/95 dark:bg-slate-900/95 backdrop-blur-md text-yellow-950 dark:text-white pt-10 pb-8 px-6 rounded-b-3xl shadow-sm z-50 shrink-0 transition-colors duration-200 border-b border-yellow-500/20 dark:border-slate-800">
-        <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center gap-3">
-            <div className="bg-white/40 dark:bg-slate-800 p-1.5 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-14 h-14 shrink-0 border border-white/40 dark:border-slate-700">
-              <img src="/rosa.png" alt="Florescer" className="w-full h-full object-cover" />
+      <div className="bg-yellow-400 dark:bg-slate-900 text-yellow-950 dark:text-white rounded-b-3xl shadow-sm transition-colors duration-200 border-b border-yellow-500/20 dark:border-slate-800 overflow-hidden">
+        {/* Top Bar with Logo & Avatar */}
+        <div className="bg-yellow-400 dark:bg-slate-800 px-6 pt-5 pb-2 flex justify-between items-center transition-colors duration-200 border-b border-yellow-950/20 dark:border-slate-700/60">
+          <div className="flex items-center gap-2.5">
+            <div className="bg-white/40 dark:bg-slate-700/80 p-1 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-11 h-11 shrink-0 border border-white/40 dark:border-slate-600">
+              <img src="/images/rosa.png" alt="Florescer" className="w-full h-full object-cover" />
             </div>
-            <span className="font-serif font-bold text-yellow-950 dark:text-yellow-400 text-2xl tracking-tight">Florescer</span>
+            <span className="font-serif font-bold text-yellow-950 dark:text-yellow-400 text-xl tracking-tight">Florescer</span>
           </div>
           
           <button 
             onClick={() => onChangeTab?.('profile')} 
-            className="w-14 h-14 rounded-full border-2 border-white/60 dark:border-slate-700 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 dark:bg-slate-800 hover:scale-105 transition-transform shrink-0"
+            className="w-11 h-11 rounded-full border-2 border-white/60 dark:border-slate-600 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 dark:bg-slate-700 hover:scale-105 transition-transform shrink-0"
           >
             {profile?.photoURL || user?.photoURL ? (
               <img src={profile?.photoURL || user?.photoURL || ''} alt={userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
             ) : (
-              <span className="text-yellow-900 dark:text-yellow-400 font-bold text-lg">{userName.charAt(0).toUpperCase()}</span>
+              <span className="text-yellow-900 dark:text-yellow-400 font-bold text-base">{userName.charAt(0).toUpperCase()}</span>
             )}
           </button>
         </div>
 
-        <div className="flex justify-between items-center">
+        <div className="px-6 pt-3 pb-6 flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-bold font-serif mb-1 text-yellow-950 dark:text-white">Jornada</h1>
+            <h1 className="text-2xl font-bold font-serif mb-0.5 text-yellow-950 dark:text-white">Jornada</h1>
             <p className="text-yellow-900 dark:text-gray-300 text-sm">Trilhas de crescimento espiritual.</p>
           </div>
           <div className="flex flex-col items-center justify-center bg-white/40 dark:bg-slate-800/80 rounded-2xl p-2.5 backdrop-blur-sm shadow-sm border border-white/30 dark:border-slate-700">
@@ -143,23 +145,33 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
         </div>
       </div>
 
-      <div className="flex-1 px-5 mt-6 space-y-8 pb-6 overflow-y-auto">
+      <div className="flex-1 px-5 mt-6 space-y-8 pb-6">
+        {/* Acervo de Vídeos VIP Banner */}
+        <section>
+          <VipVideoBanner 
+            onClick={() => onChangeTab?.('videoHistory')} 
+            variant="full"
+          />
+        </section>
+
         {/* Categories Grid */}
         <section>
-          <div className="flex flex-col gap-4 mb-4">
+          <div className="flex flex-col gap-3 mb-4">
             <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-yellow-500" />
               Temas Diários
             </h2>
-            <div className="relative">
-              <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-              <input
-                type="text"
-                placeholder="Buscar temas..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all shadow-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
-              />
+            <div className="sticky top-3 z-30 bg-gray-50/95 dark:bg-slate-900/95 backdrop-blur-md py-1.5 -mx-1 px-1 rounded-2xl">
+              <div className="relative">
+                <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Buscar temas..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all shadow-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                />
+              </div>
             </div>
           </div>
           

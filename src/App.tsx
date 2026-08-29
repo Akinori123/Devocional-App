@@ -22,14 +22,18 @@ import { Loader2, Trash2 } from 'lucide-react';
 
 function AppContent() {
   const [currentTab, setCurrentTab] = useState<TabType>('home');
-  const [profileSubTab, setProfileSubTab] = useState<'diary' | 'verses' | 'subscription' | 'settings'>('diary');
+  const [profileSubTab, setProfileSubTab] = useState<'diary' | 'verses' | 'videos' | 'subscription' | 'settings'>('diary');
   const [bibleSelection, setBibleSelection] = useState<{ bookId: string; chapter: number; verse: number } | null>(null);
 
   const { user, profile, loading, logout } = useAuth();
 
-  const handleTabChange = useCallback((tab: TabType, subTab?: 'diary' | 'verses' | 'subscription' | 'settings') => {
+  const handleTabChange = useCallback((tab: TabType, subTab?: 'diary' | 'verses' | 'videos' | 'subscription' | 'settings' | 'admin') => {
     if (tab === 'profile') {
-      setProfileSubTab(subTab || 'diary');
+      if (subTab && subTab !== 'admin') {
+        setProfileSubTab(subTab);
+      } else {
+        setProfileSubTab('diary');
+      }
     }
     setCurrentTab(tab);
   }, []);
@@ -90,7 +94,7 @@ function AppContent() {
       case 'journey':
         return <Journey onChangeTab={handleTabChange} onNavigateToBible={handleNavigateToBible} />;
       case 'profile':
-        return <Profile initialTab={profileSubTab} />;
+        return <Profile initialTab={profileSubTab} onChangeTab={handleTabChange} />;
       case 'videoHistory':
         return <VideoHistory onBack={() => handleTabChange('home')} onGoToPremium={() => handleTabChange('profile', 'subscription')} />;
       case 'usersAdmin':
@@ -101,12 +105,14 @@ function AppContent() {
   };
 
   return (
-    <>
+    <div className={`flex flex-col min-h-screen bg-white dark:bg-slate-900 mx-auto relative shadow-2xl transition-all duration-200 ${
+      currentTab === 'usersAdmin' ? 'w-full max-w-md lg:max-w-4xl xl:max-w-5xl' : 'w-full max-w-md'
+    }`}>
       {renderContent()}
       <BottomNav currentTab={currentTab} onChangeTab={handleTabChange} />
       <TourGuide onChangeTab={handleTabChange} />
       <SubscriptionLandingModal />
-    </>
+    </div>
   );
 }
 
@@ -118,9 +124,7 @@ export default function App() {
       <SettingsProvider>
         <AuthProvider>
           <DevotionalProvider>
-            <div className="flex flex-col min-h-screen bg-white dark:bg-slate-900 max-w-md mx-auto relative shadow-2xl transition-colors duration-200">
-              <AppContent />
-            </div>
+            <AppContent />
           </DevotionalProvider>
         </AuthProvider>
       </SettingsProvider>

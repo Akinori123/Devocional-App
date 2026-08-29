@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { doc, getDoc, setDoc, collection, serverTimestamp, getDocs, query, orderBy, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { doc, getDoc, setDoc, collection, serverTimestamp, getDocs, query, orderBy, deleteDoc, updateDoc, writeBatch, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { Loader2, Save, Video, Book, PlusCircle, Trash2, Edit2, X, Search, Download, Check, Sparkles, ChevronDown, ChevronRight, RefreshCw, Star, HelpCircle, Activity } from 'lucide-react';
 import { useDevotionals } from '../../context/DevotionalContext';
@@ -62,6 +62,41 @@ export function AdminTab() {
   const [expandedThemes, setExpandedThemes] = useState<Record<string, boolean>>({});
 
   const [activeTab, setActiveTab] = useState<'daily' | 'library' | 'videos' | 'metrics'>('daily');
+  
+  // Drag to scroll tabs with smooth mouse support
+  const adminTabsRef = useRef<HTMLDivElement>(null);
+  const isMouseDownRef = useRef(false);
+  const startXRef = useRef(0);
+  const startScrollLeftRef = useRef(0);
+  const hasMovedRef = useRef(false);
+
+  const handleTabsMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    isMouseDownRef.current = true;
+    hasMovedRef.current = false;
+    startXRef.current = e.clientX;
+    startScrollLeftRef.current = adminTabsRef.current?.scrollLeft || 0;
+  };
+
+  const handleTabsMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isMouseDownRef.current || !adminTabsRef.current) return;
+    const deltaX = e.clientX - startXRef.current;
+    if (Math.abs(deltaX) > 4) {
+      hasMovedRef.current = true;
+      adminTabsRef.current.scrollLeft = startScrollLeftRef.current - deltaX;
+    }
+  };
+
+  const handleTabsMouseUp = () => {
+    isMouseDownRef.current = false;
+    setTimeout(() => {
+      hasMovedRef.current = false;
+    }, 100);
+  };
+
+  const handleAdminTabClick = (tab: 'daily' | 'library' | 'videos' | 'metrics') => {
+    if (hasMovedRef.current) return;
+    setActiveTab(tab);
+  };
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualCreationType, setManualCreationType] = useState<'single' | 'existing_module' | 'new_module'>('single');
   const [allThemes, setAllThemes] = useState<string[]>([]);
@@ -82,7 +117,23 @@ export function AdminTab() {
   const [settingDailyVideoId, setSettingDailyVideoId] = useState<string | null>(null);
   const [videoSearchQuery, setVideoSearchQuery] = useState('');
   const [confirmClearDaily, setConfirmClearDaily] = useState(false);
+  const [adminFirestoreDevotionals, setAdminFirestoreDevotionals] = useState<DevotionalItem[]>([]);
 
+  // Escuta em tempo real 100% dos devocionais do Firestore para o painel Admin (sem limite de paginação)
+  useEffect(() => {
+    const q = query(collection(db, 'devotionals'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const devs = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id
+      })) as DevotionalItem[];
+      setAdminFirestoreDevotionals(devs);
+    }, (error) => {
+      console.error("Error listening to admin devotionals:", error);
+    });
+
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const fetchAllThemes = async () => {
@@ -119,10 +170,36 @@ export function AdminTab() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const platformDevotionals = [
-    ...globalDevotionals.filter((g: any) => !g.deleted),
-    ...mockDevotionals.filter(m => !globalDevotionals.some(g => g.id === m.id))
-  ];
+  const platformDevotionals = useMemo(() => {
+    const firestoreDevs = adminFirestoreDevotionals.length > 0 ? adminFirestoreDevotionals : globalDevotionals;
+    return [
+      ...firestoreDevs.filter((g: any) => !g.deleted),
+      ...mockDevotionals.filter(m => !firestoreDevs.some(g => g.id === m.id))
+    ];
+  }, [adminFirestoreDevotionals, globalDevotionals]);
+
+  const allGroupedDevotionals = useMemo(() => {
+    return platformDevotionals.reduce((acc, dev) => {
+      const theme = dev.theme || 'Outros';
+      if (!acc[theme]) acc[theme] = [];
+      acc[theme].push(dev);
+      return acc;
+    }, {} as Record<string, DevotionalItem[]>);
+  }, [platformDevotionals]);
+
+  const groupedDevotionals = useMemo(() => {
+    return platformDevotionals
+      .filter(d => 
+        (d.title || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+        (d.theme || '').toLowerCase().includes(searchQuery.toLowerCase())
+      )
+      .reduce((acc, dev) => {
+        const theme = dev.theme || 'Outros';
+        if (!acc[theme]) acc[theme] = [];
+        acc[theme].push(dev);
+        return acc;
+      }, {} as Record<string, DevotionalItem[]>);
+  }, [platformDevotionals, searchQuery]);
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -617,19 +694,7 @@ export function AdminTab() {
     );
   }
 
-  const groupedDevotionals = platformDevotionals
-    .filter(d => 
-      d.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      d.theme.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-    .reduce((acc, dev) => {
-      const theme = dev.theme || 'Outros';
-      if (!acc[theme]) acc[theme] = [];
-      acc[theme].push(dev);
-      return acc;
-    }, {} as Record<string, import('../../data/devotionals').DevotionalItem[]>);
-
-  const totalModules = Object.keys(groupedDevotionals).length;
+  const totalModules = Object.keys(allGroupedDevotionals).length;
   const totalDevotionals = platformDevotionals.length;
 
   const filteredVideos = videoHistory.filter(video => 
@@ -640,40 +705,52 @@ export function AdminTab() {
 
   return (
     <div className="animate-in fade-in duration-300">
-      <div className="flex bg-gray-100/80 dark:bg-slate-800/80 p-1.5 rounded-2xl mb-8 border border-gray-200/50 dark:border-slate-700/50 backdrop-blur-sm gap-1 overflow-x-auto">
+      <div 
+        ref={adminTabsRef}
+        onMouseDown={handleTabsMouseDown}
+        onMouseMove={handleTabsMouseMove}
+        onMouseUp={handleTabsMouseUp}
+        onMouseLeave={handleTabsMouseUp}
+        onWheel={(e) => {
+          if (adminTabsRef.current && e.deltaY !== 0) {
+            adminTabsRef.current.scrollLeft += e.deltaY;
+          }
+        }}
+        className="flex bg-gray-100/80 dark:bg-slate-800/80 p-1.5 rounded-2xl mb-8 border border-gray-200/50 dark:border-slate-700/50 backdrop-blur-sm gap-1 overflow-x-auto scrollbar-hide no-scrollbar cursor-grab active:cursor-grabbing select-none"
+      >
         <button
-          onClick={() => setActiveTab('daily')}
-          className={`flex-1 min-w-[120px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all ${
+          onClick={() => handleAdminTabClick('daily')}
+          className={`flex-1 min-w-[120px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
             activeTab === 'daily' 
-              ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md ring-1 ring-black/5 dark:ring-white/10' 
+              ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md ring-1 ring-black/5 dark:ring-white/10 font-bold' 
               : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
           }`}
         >
           📺 Destaque de Hoje
         </button>
         <button
-          onClick={() => setActiveTab('library')}
-          className={`flex-1 min-w-[120px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all ${
+          onClick={() => handleAdminTabClick('library')}
+          className={`flex-1 min-w-[120px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
             activeTab === 'library' 
-              ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md ring-1 ring-black/5 dark:ring-white/10' 
+              ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md ring-1 ring-black/5 dark:ring-white/10 font-bold' 
               : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
           }`}
         >
           📚 Acervo & Jornada
         </button>
         <button
-          onClick={() => setActiveTab('videos')}
-          className={`flex-1 min-w-[120px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all ${
+          onClick={() => handleAdminTabClick('videos')}
+          className={`flex-1 min-w-[120px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
             activeTab === 'videos' 
-              ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md ring-1 ring-black/5 dark:ring-white/10' 
+              ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md ring-1 ring-black/5 dark:ring-white/10 font-bold' 
               : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
           }`}
         >
           📹 Vídeos Antigos
         </button>
         <button
-          onClick={() => setActiveTab('metrics')}
-          className={`flex-1 min-w-[140px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+          onClick={() => handleAdminTabClick('metrics')}
+          className={`flex-1 min-w-[140px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
             activeTab === 'metrics' 
               ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-md ring-1 ring-black/5 dark:ring-white/10 font-bold' 
               : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'

@@ -1,8 +1,66 @@
 import type { Request, Response } from 'express';
 import { GoogleGenAI, Type } from '@google/genai';
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+
+function getAdminDb(): FirebaseFirestore.Firestore | null {
+  try {
+    if (!getApps().length) {
+      const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+      const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+      const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+      const projectId = process.env.FIREBASE_PROJECT_ID || 'devocional-app-63871';
+
+      if (serviceAccountKey) {
+        try {
+          let parsed: any;
+          // Suporte a JSON direto ou Base64
+          if (serviceAccountKey.trim().startsWith('{')) {
+            parsed = JSON.parse(serviceAccountKey);
+          } else {
+            const decoded = Buffer.from(serviceAccountKey, 'base64').toString('utf-8');
+            parsed = JSON.parse(decoded);
+          }
+          initializeApp({
+            credential: cert(parsed)
+          });
+          console.log('[Firebase Admin] Inicializado com sucesso via FIREBASE_SERVICE_ACCOUNT_KEY');
+        } catch (parseErr: any) {
+          console.error('[Firebase Admin] Falha ao fazer parse de FIREBASE_SERVICE_ACCOUNT_KEY:', parseErr?.message || parseErr);
+        }
+      } else if (privateKey && clientEmail) {
+        try {
+          initializeApp({
+            credential: cert({
+              projectId,
+              clientEmail,
+              privateKey: privateKey.replace(/\\n/g, '\n')
+            })
+          });
+          console.log('[Firebase Admin] Inicializado com sucesso via FIREBASE_PRIVATE_KEY e FIREBASE_CLIENT_EMAIL');
+        } catch (credErr: any) {
+          console.error('[Firebase Admin] Falha ao inicializar com credenciais avulsas:', credErr?.message || credErr);
+        }
+      } else {
+        try {
+          initializeApp({
+            projectId
+          });
+          console.log(`[Firebase Admin] Inicializado com projectId padrão: ${projectId}`);
+        } catch (e: any) {
+          console.warn('[Firebase Admin] Inicialização sem credenciais completas:', e?.message || e);
+        }
+      }
+    }
+    return getFirestore();
+  } catch (err: any) {
+    console.error('[Firebase Admin] Erro geral ao obter Firestore:', err?.message || err);
+    return null;
+  }
+}
 
 export default async function handler(req: Request, res: Response) {
-  // Set CORS headers
+  // Configuração de cabeçalhos CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -21,18 +79,78 @@ export default async function handler(req: Request, res: Response) {
   }
 
   try {
-    const { reference, text, bookName, chapter, verseNumbers } = req.body || {};
+    const { reference, text, bookName, bookId, chapter, verseNumbers, cacheDocId: customCacheDocId } = req.body || {};
     const apiKey = process.env.GEMINI_API_KEY;
-
-    if (!apiKey) {
-      return res.status(500).json({ 
-        error: "Chave GEMINI_API_KEY não configurada no servidor ou na Vercel." 
-      });
-    }
 
     if (!reference || !text) {
       return res.status(400).json({ 
         error: "Passagem ou versículo não informado para explicação." 
+      });
+    }
+
+    // Calcula o doc ID padronizado do cache
+    const cleanBookId = (bookId || bookName || reference || 'verse')
+      .toLowerCase()
+      .split(/[\s:]+/)[0]
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/g, '');
+
+    let versesStr = '1';
+    if (Array.isArray(verseNumbers) && verseNumbers.length > 0) {
+      versesStr = verseNumbers.join('-');
+    } else if (typeof verseNumbers === 'string' || typeof verseNumbers === 'number') {
+      versesStr = String(verseNumbers);
+    } else if (reference) {
+      const parts = reference.split(':');
+      if (parts.length > 1) {
+        versesStr = parts[1].replace(/\s+/g, '').replace(/,/g, '-');
+      }
+    }
+
+    const chapterNum = chapter || 1;
+    const cacheDocId = customCacheDocId || `${cleanBookId}_c${chapterNum}_v${versesStr}`;
+
+    console.log(`[explain-verse] Iniciando processamento para ${reference} (cacheDocId: ${cacheDocId})`);
+
+    // 1. VERIFICAÇÃO PRÉVIA NO CACHE DO FIRESTORE (ECONOMIA DE COTA)
+    const adminDb = getAdminDb();
+
+    if (adminDb && cacheDocId) {
+      try {
+        console.log(`[Cache Lookup] Consultando coleção 'bible_explanations', doc: '${cacheDocId}'...`);
+        const cacheDoc = await adminDb.collection('bible_explanations').doc(cacheDocId).get();
+        
+        if (cacheDoc.exists) {
+          const cachedData = cacheDoc.data();
+          if (cachedData && (cachedData.context || cachedData.meaning)) {
+            console.log(`[Cache HIT ⚡] Resposta recuperada instantaneamente do Firestore para ${cacheDocId}`);
+            return res.status(200).json({
+              reference: cachedData.reference || reference,
+              text: cachedData.text || text,
+              context: cachedData.context || '',
+              meaning: cachedData.meaning || '',
+              practicalApplication: cachedData.practicalApplication || '',
+              shortPrayer: cachedData.shortPrayer || '',
+              cached: true
+            });
+          }
+        }
+        console.log(`[Cache MISS 💨] Versículo '${cacheDocId}' não encontrado no cache. Chamando Gemini...`);
+      } catch (cacheLookupErr: any) {
+        console.warn(`[Cache Lookup Warning] Falha na consulta prévia do cache (${cacheDocId}):`, {
+          code: cacheLookupErr?.code,
+          message: cacheLookupErr?.message
+        });
+      }
+    } else {
+      console.warn(`[Cache Lookup Skip] Admin DB indisponível ou cacheDocId vazio.`);
+    }
+
+    if (!apiKey) {
+      console.error("[Gemini Error] Chave GEMINI_API_KEY não configurada.");
+      return res.status(500).json({ 
+        error: "Chave GEMINI_API_KEY não configurada no servidor ou na Vercel." 
       });
     }
 
@@ -65,6 +183,7 @@ Mantenha o tom empático, pastoral, acolhedor e edificante em até 3 parágrafos
 
     for (const model of modelsToTry) {
       try {
+        console.log(`[Gemini Request] Tentando gerar com modelo: ${model}...`);
         response = await ai.models.generateContent({
           model,
           contents: prompt,
@@ -84,10 +203,13 @@ Mantenha o tom empático, pastoral, acolhedor e edificante em até 3 parágrafos
           }
         });
 
-        if (response?.text) break;
+        if (response?.text) {
+          console.log(`[Gemini Success] Resposta gerada com sucesso pelo modelo ${model}`);
+          break;
+        }
       } catch (err: any) {
         lastError = err;
-        console.warn(`[Gemini explain-verse] Model ${model} failed, attempting next model:`, err?.message || err);
+        console.warn(`[Gemini Warning] Modelo ${model} falhou:`, err?.message || err);
       }
     }
 
@@ -102,6 +224,49 @@ Mantenha o tom empático, pastoral, acolhedor e edificante em até 3 parágrafos
     }
 
     const parsed = JSON.parse(cleanText);
+
+    // 2. GRAVAÇÃO OBRIGATÓRIA NO FIRESTORE COM AWAIT ANTES DE RETORNAR STATUS 200
+    if (adminDb && cacheDocId) {
+      const payloadToSave = {
+        reference: reference || '',
+        text: text || '',
+        bookId: bookId || cleanBookId,
+        bookName: bookName || '',
+        chapter: chapterNum,
+        verseNumbers: Array.isArray(verseNumbers) ? verseNumbers : [1],
+        context: parsed.context || '',
+        meaning: parsed.meaning || '',
+        practicalApplication: parsed.practicalApplication || '',
+        shortPrayer: parsed.shortPrayer || '',
+        createdAt: new Date().toISOString(),
+        source: 'gemini-api'
+      };
+
+      try {
+        console.log(`[Firestore Cache Save] Gravando obrigatoriamente no Firestore (coleção: bible_explanations, doc: ${cacheDocId})...`);
+        const startTime = Date.now();
+        
+        // AWAIT OBRIGATÓRIO
+        await adminDb.collection('bible_explanations').doc(cacheDocId).set(payloadToSave, { merge: true });
+        
+        const durationMs = Date.now() - startTime;
+        console.log(`[Firestore Cache Save SUCESSO ✅] Versículo ${cacheDocId} gravado com sucesso no Firestore em ${durationMs}ms`);
+      } catch (saveErr: any) {
+        console.error(`[Firestore Cache Save ERRO ❌] Falha crítica ao gravar bible_explanations/${cacheDocId}:`, {
+          code: saveErr?.code || 'UNKNOWN_CODE',
+          message: saveErr?.message || saveErr,
+          details: saveErr?.details || null,
+          stack: saveErr?.stack || null
+        });
+      }
+    } else {
+      console.warn(`[Firestore Cache Save ALERTA ⚠️] Firestore Admin não disponível ou cacheDocId inválido:`, { 
+        hasAdminDb: !!adminDb, 
+        cacheDocId 
+      });
+    }
+
+    // Retorna resposta 200 ao cliente após o salvamento
     return res.status(200).json(parsed);
   } catch (error: any) {
     console.error("Error in /api/gemini/explain-verse:", error);
