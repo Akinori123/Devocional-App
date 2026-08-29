@@ -1,9 +1,11 @@
-import { User, Crown, LogOut, Flame, Camera, Loader2 } from 'lucide-react';
+import { User, Crown, LogOut, Flame, Camera, Loader2, Coins } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useRef, useState } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useToast } from '../../context/ToastContext';
+import { CoinHistoryModal } from '../gamification/CoinHistoryModal';
+import { CoinIcon } from '../common/CoinIcon';
 
 export function ProfileHeader() {
   const toast = useToast();
@@ -16,6 +18,7 @@ export function ProfileHeader() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [showCoinHistory, setShowCoinHistory] = useState(false);
 
   const handlePhotoUpload = async (e: any) => {
     const file = e.target.files?.[0];
@@ -119,6 +122,14 @@ export function ProfileHeader() {
               <Flame className="w-3 h-3 text-orange-500 fill-orange-500" />
               <span>{streakCount} Dias</span>
             </div>
+            <button 
+              onClick={() => setShowCoinHistory(true)}
+              className="inline-flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-300 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs whitespace-nowrap shrink-0 border border-amber-500/30 transition-colors active:scale-95 cursor-pointer"
+              title="Ver Extrato de Moedas"
+            >
+              <CoinIcon className="w-3.5 h-3.5" />
+              <span>{profile?.coins || 0} Moedas</span>
+            </button>
           </div>
         </div>
         <button 
@@ -129,6 +140,11 @@ export function ProfileHeader() {
           <LogOut className="w-4 h-4 text-yellow-950 dark:text-gray-200" />
         </button>
       </div>
+
+      <CoinHistoryModal 
+        isOpen={showCoinHistory} 
+        onClose={() => setShowCoinHistory(false)} 
+      />
     </div>
   );
 }

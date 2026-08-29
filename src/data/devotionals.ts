@@ -6,6 +6,9 @@ export interface DevotionalItem {
   beautifulWord: string;
   content: string;
   createdAt?: any;
+  visibility?: 'free' | 'vip' | 'secret';
+  coinCost?: number;
+  isCustom?: boolean;
 }
 
 export const mockDevotionals: DevotionalItem[] = [

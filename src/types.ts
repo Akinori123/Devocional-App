@@ -24,6 +24,11 @@ export interface UserProfile {
   deletedAt?: string;
   bibleProgress?: Record<string, number[]>;
   lastReadReference?: BibleLastRead;
+  coins?: number;
+  lastCoinDate?: string;
+  claimedDailyMissions?: string[];
+  unlockedSecretModules?: string[];
+  unlocked_modules?: string[];
 }
 
 export interface VideoItem {
@@ -43,6 +48,8 @@ export interface Devotional {
   totalDays: number;
   coverImageUrl: string;
   isPremium: boolean;
+  visibility?: 'free' | 'vip' | 'secret';
+  coinCost?: number;
 }
 
 export interface UserProgress {
@@ -61,3 +68,4 @@ export interface Note {
   content: string;
   createdAt: number;
 }
+

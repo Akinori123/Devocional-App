@@ -80,6 +80,22 @@
         { "name": "createdAt", "type": "string" }
       ],
       "description": "Global persistent cache for AI-generated Bible verse explanations."
+    },
+    {
+      "name": "coin_history",
+      "documentId": "historyId",
+      "fields": [
+        { "name": "userId", "type": "reference", "targetCollection": "users" },
+        { "name": "amount", "type": "number" },
+        { "name": "type", "type": "string" },
+        { "name": "reason", "type": "string" },
+        { "name": "missionType", "type": "string" },
+        { "name": "moduleId", "type": "string" },
+        { "name": "balanceAfter", "type": "number" },
+        { "name": "date", "type": "string" },
+        { "name": "createdAt", "type": "timestamp" }
+      ],
+      "description": "Auditable transaction ledger subcollection for user coin earnings and spends under users/{userId}/coin_history."
     }
   ]
 }

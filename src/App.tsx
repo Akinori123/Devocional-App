@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { BottomNav } from './components/BottomNav';
 import { TourGuide } from './components/TourGuide';
 import { SubscriptionLandingModal } from './components/subscription/SubscriptionLandingModal';
@@ -15,17 +15,21 @@ import { Onboarding } from './pages/Onboarding';
 import { VideoHistory } from './pages/VideoHistory';
 import { UsersAdminPanel } from './pages/UsersAdminPanel';
 import { TabType } from './types';
-import { DevotionalProvider } from './context/DevotionalContext';
+import { DevotionalProvider, useDevotionals } from './context/DevotionalContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SettingsProvider } from './context/SettingsContext';
+import { useActiveSessionTracker } from './hooks/useActiveSessionTracker';
 import { Loader2, Trash2 } from 'lucide-react';
 
 function AppContent() {
+  useActiveSessionTracker();
   const [currentTab, setCurrentTab] = useState<TabType>('home');
   const [profileSubTab, setProfileSubTab] = useState<'diary' | 'verses' | 'videos' | 'subscription' | 'settings'>('diary');
   const [bibleSelection, setBibleSelection] = useState<{ bookId: string; chapter: number; verse: number } | null>(null);
 
   const { user, profile, loading, logout } = useAuth();
+  const { allDevotionals, setActiveDevotional } = useDevotionals();
+  const handledDeepLinkRef = useRef(false);
 
   const handleTabChange = useCallback((tab: TabType, subTab?: 'diary' | 'verses' | 'videos' | 'subscription' | 'settings' | 'admin') => {
     if (tab === 'profile') {
@@ -46,6 +50,55 @@ function AppContent() {
   const handleClearBibleSelection = useCallback(() => {
     setBibleSelection(null);
   }, []);
+
+  // Deep Linking Handler (Épico 4)
+  useEffect(() => {
+    if (handledDeepLinkRef.current) return;
+    
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab') as TabType | null;
+      const subTabParam = params.get('subTab') as any;
+      const devotionalIdParam = params.get('devotionalId');
+      const themeParam = params.get('theme');
+      const bookParam = params.get('book');
+      const chapterParam = params.get('chapter');
+      const verseParam = params.get('verse');
+
+      if (tabParam && ['home', 'bible', 'journey', 'profile', 'videoHistory', 'usersAdmin'].includes(tabParam)) {
+        handleTabChange(tabParam, subTabParam);
+        handledDeepLinkRef.current = true;
+      }
+
+      if (bookParam && chapterParam) {
+        setBibleSelection({
+          bookId: bookParam.toUpperCase(),
+          chapter: parseInt(chapterParam) || 1,
+          verse: parseInt(verseParam || '1') || 1
+        });
+        setCurrentTab('bible');
+        handledDeepLinkRef.current = true;
+      }
+
+      if (devotionalIdParam && allDevotionals.length > 0) {
+        const found = allDevotionals.find(d => d.id === devotionalIdParam);
+        if (found) {
+          setActiveDevotional(found);
+          setCurrentTab('journey');
+          handledDeepLinkRef.current = true;
+        }
+      } else if (themeParam && allDevotionals.length > 0) {
+        const found = allDevotionals.find(d => d.theme.toLowerCase() === themeParam.toLowerCase());
+        if (found) {
+          setActiveDevotional(found);
+          setCurrentTab('journey');
+          handledDeepLinkRef.current = true;
+        }
+      }
+    } catch (e) {
+      console.error('Error handling deep link params:', e);
+    }
+  }, [allDevotionals, handleTabChange, setActiveDevotional]);
 
   if (loading) {
     return (

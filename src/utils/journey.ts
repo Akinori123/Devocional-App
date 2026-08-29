@@ -6,12 +6,13 @@ export interface JourneyStatus {
 }
 
 export function getJourneyStatus(days: number): JourneyStatus {
+  const dayText = days === 1 ? '1 dia' : `${days} dias`;
   if (days <= 0) {
     return {
       emoji: '🌱',
       icon: '🌱',
       label: 'Iniciante',
-      text: 'Iniciante: Dando os primeiros passos!'
+      text: '0 dias'
     };
   }
   if (days === 1) {
@@ -19,7 +20,7 @@ export function getJourneyStatus(days: number): JourneyStatus {
       emoji: '🌱',
       icon: '🌱',
       label: 'Semente',
-      text: '1 dia dando os primeiros passos...'
+      text: '1 dia'
     };
   }
   if (days < 7) {
@@ -27,7 +28,7 @@ export function getJourneyStatus(days: number): JourneyStatus {
       emoji: '🌿',
       icon: '🌿',
       label: 'Caminhando',
-      text: `${days} dias caminhando com Cristo!`
+      text: dayText
     };
   }
   if (days < 30) {
@@ -35,7 +36,7 @@ export function getJourneyStatus(days: number): JourneyStatus {
       emoji: '🌸',
       icon: '🌸',
       label: 'Florescendo',
-      text: `${days} dias! Suas raízes florescendo!`
+      text: dayText
     };
   }
   if (days < 365) {
@@ -43,13 +44,13 @@ export function getJourneyStatus(days: number): JourneyStatus {
       emoji: '🌳',
       icon: '🌳',
       label: 'Constante',
-      text: `${days} dias! Árvore forte e constante!`
+      text: dayText
     };
   }
   return {
     emoji: '👑',
     icon: '👑',
     label: 'Inabalável',
-    text: `${days} dias! Uma jornada inabalável na fé!`
+    text: dayText
   };
 }

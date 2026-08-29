@@ -165,7 +165,9 @@ export function Profile({ initialTab = 'diary', onChangeTab }: ProfileProps = {}
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="min-h-[50vh]">
-          {activeTab === 'diary' && <DiaryTab />}
+          {activeTab === 'diary' && (
+            <DiaryTab onNavigateToSubscription={() => setActiveTab('subscription')} />
+          )}
           {activeTab === 'verses' && <SavedVersesTab />}
           {activeTab === 'videos' && (
             <FavoriteVideosTab 

@@ -1,40 +1,22 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { 
-  initializeFirestore, 
-  persistentLocalCache, 
-  persistentMultipleTabManager,
-  getFirestore
-} from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getMessaging, isSupported } from 'firebase/messaging';
+import firebaseConfigJson from '../../firebase-applet-config.json';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBInDV-wE6kcOC6ggFBy8xyjNc31HLuD7w",
-  authDomain: "devocional-app-63871.firebaseapp.com",
-  projectId: "devocional-app-63871",
-  storageBucket: "devocional-app-63871.firebasestorage.app",
-  messagingSenderId: "448557677071",
-  appId: "1:448557677071:web:36a9227875520a176b817a",
-  measurementId: "G-ZYVY151QSP"
+  apiKey: firebaseConfigJson.apiKey || "AIzaSyBInDV-wE6kcOC6ggFBy8xyjNc31HLuD7w",
+  authDomain: firebaseConfigJson.authDomain || "devocional-app-63871.firebaseapp.com",
+  projectId: firebaseConfigJson.projectId || "devocional-app-63871",
+  storageBucket: firebaseConfigJson.storageBucket || "devocional-app-63871.firebasestorage.app",
+  messagingSenderId: firebaseConfigJson.messagingSenderId || "448557677071",
+  appId: firebaseConfigJson.appId || "1:448557677071:web:36a9227875520a176b817a",
+  measurementId: firebaseConfigJson.measurementId || "G-ZYVY151QSP"
 };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-let firestoreDb;
-try {
-  firestoreDb = initializeFirestore(app, {
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager()
-    }),
-    experimentalForceLongPolling: true
-  });
-} catch (e) {
-  // If already initialized or persistent cache unavailable, fallback to getFirestore
-  console.warn("Firestore initialization fallback:", e);
-  firestoreDb = getFirestore(app);
-}
-
-export const db = firestoreDb;
+export const db = getFirestore(app, firebaseConfigJson.firestoreDatabaseId || '(default)');
 export const auth = getAuth(app);
 
 export const getMessagingInstance = async () => {

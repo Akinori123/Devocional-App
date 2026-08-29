@@ -153,8 +153,8 @@ function parseDevotionalContent(content: string) {
 
 export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigateToBible, onGenerated, onCreateNew, onBack }: DevotionalReaderProps) {
   const toast = useToast();
-  const { markAsRead, addCustomDevotional, allDevotionals, readHistory } = useDevotionals();
-  const { profile, user } = useAuth();
+  const { markAsRead, addCustomDevotional, allDevotionals, adminDevotionals, readHistory } = useDevotionals();
+  const { profile, user, awardDailyCoin } = useAuth();
   
   const isAdmin = profile?.isAdmin === true || user?.email === 'dofekrafael@gmail.com' || user?.email === 'sjhonatan916@gmail.com' || user?.email === 'floresceremadoracao@gmail.com';
   const hasAccess = profile?.isPremium || isAdmin;
@@ -357,6 +357,31 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
   const cardRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const markedDevotionalIdRef = useRef<string>('');
+  
+  // Anti-Cheat Reading Mission State & Refs (Dynamic Reading Calculation + Scroll to end)
+  const timeSpentOnDevotionalRef = useRef<number>(0);
+  const hasScrolledToEndRef = useRef<boolean>(false);
+  const hasAwardedReadingCoinRef = useRef<boolean>(false);
+
+  // Cálculo de Tempo Dinâmico com base no número de palavras do texto
+  const requiredReadingTime = useMemo(() => {
+    if (!devotional) return 15;
+    const fullText = [
+      devotional.title || '',
+      devotional.beautifulWord || '',
+      displayVerseText || '',
+      devotional.content || '',
+      devotional.description || ''
+    ].join(' ');
+    
+    // Contagem de palavras reais
+    const words = fullText.trim().split(/\s+/).filter(Boolean);
+    const wordCount = words.length;
+
+    // Média humana de leitura: 250 palavras por minuto. Piso mínimo amigável de 15 segundos.
+    const dynamicSeconds = Math.max(15, Math.floor((wordCount / 250) * 60));
+    return dynamicSeconds;
+  }, [devotional, displayVerseText]);
 
   const scrollToTop = () => {
     try {
@@ -378,12 +403,96 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
   useEffect(() => {
     if (devotional?.id) {
       scrollToTop();
+      timeSpentOnDevotionalRef.current = 0;
+      hasScrolledToEndRef.current = false;
+      hasAwardedReadingCoinRef.current = false;
+
       if (markedDevotionalIdRef.current !== devotional.id) {
         markedDevotionalIdRef.current = devotional.id;
         markAsRead(devotional.id, devotional.theme);
       }
     }
   }, [devotional?.id, devotional?.theme, markAsRead]);
+
+  // Anti-Cheat Engine: Verificação simultânea de Tempo Dinâmico de Leitura + Scroll ao final
+  useEffect(() => {
+    if (!devotional?.id || !user) return;
+
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const isReadingClaimedToday = Boolean(
+      profile?.claimedDailyMissions?.includes(`devotional_reading_${today}`) || 
+      (typeof window !== 'undefined' && localStorage.getItem(`claimed_mission_devotional_reading_${user.uid}_${today}`) === 'true')
+    );
+    if (isReadingClaimedToday) {
+      hasAwardedReadingCoinRef.current = true;
+      return;
+    }
+
+    const devStorageKey = `devotional_mission_${user.uid}_${today}`;
+    
+    // Carrega progresso anterior de hoje se houver
+    try {
+      const stored = localStorage.getItem(devStorageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.timeSpent) timeSpentOnDevotionalRef.current = Math.max(timeSpentOnDevotionalRef.current, parsed.timeSpent);
+        if (parsed.scrolled) hasScrolledToEndRef.current = true;
+        if (parsed.completed) hasAwardedReadingCoinRef.current = true;
+      }
+    } catch (e) {}
+
+    const saveAndCheckProgress = () => {
+      const isCompleted = timeSpentOnDevotionalRef.current >= requiredReadingTime && hasScrolledToEndRef.current;
+      
+      try {
+        localStorage.setItem(devStorageKey, JSON.stringify({
+          timeSpent: timeSpentOnDevotionalRef.current,
+          requiredTime: requiredReadingTime,
+          scrolled: hasScrolledToEndRef.current,
+          completed: isCompleted
+        }));
+      } catch (e) {}
+
+      if (isCompleted && !hasAwardedReadingCoinRef.current) {
+        hasAwardedReadingCoinRef.current = true;
+        toast.success('🎯 Missão Concluída: Leitura do devocional finalizada! Abra o menu Missões para resgatar sua Moeda 🎁');
+      }
+    };
+
+    // 1. Contador de tempo ativo na tela
+    let isVisible = document.visibilityState === 'visible';
+    const handleVisibilityChange = () => {
+      isVisible = document.visibilityState === 'visible';
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const timer = setInterval(() => {
+      if (!isVisible) return;
+      timeSpentOnDevotionalRef.current += 1;
+      saveAndCheckProgress();
+    }, 1000);
+
+    // 2. Detecção de Scroll até o final do texto
+    const handleScroll = () => {
+      const scrollY = window.scrollY || document.documentElement.scrollTop;
+      const windowHeight = window.innerHeight;
+      const docHeight = document.documentElement.scrollHeight;
+
+      // Se o usuário rolou até 88% ou mais da página (ou últimos 300px)
+      if (scrollY + windowHeight >= docHeight - 300 || (scrollY + windowHeight) / docHeight >= 0.88) {
+        hasScrolledToEndRef.current = true;
+        saveAndCheckProgress();
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, [devotional?.id, user?.uid, profile?.lastCoinDate, requiredReadingTime, awardDailyCoin, toast]);
 
   const handleShare = () => {
     const textToShare = `${devotional.title} - ${devotional.beautifulWord}\n\n${devotional.content}\n\nCompartilhado do Devocional App`;
@@ -626,8 +735,8 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
 
         {/* AI Generator Placeholder / Completion CTA */}
         {(() => {
-          const themeDevs = allDevotionals.filter(d => d.theme === devotional.theme);
-          const isThemeCompleted = themeDevs.every(d => readHistory.includes(d.id) || d.id === devotional.id);
+          const themeDevs = adminDevotionals.filter(d => d.theme === devotional.theme);
+          const isThemeCompleted = themeDevs.length > 0 && themeDevs.every(d => readHistory.includes(d.id) || d.id === devotional.id);
 
           if (isThemeCompleted) {
             return (

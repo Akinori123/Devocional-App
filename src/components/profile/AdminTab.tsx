@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { doc, getDoc, setDoc, collection, serverTimestamp, getDocs, query, orderBy, deleteDoc, updateDoc, writeBatch, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { Loader2, Save, Video, Book, PlusCircle, Trash2, Edit2, X, Search, Download, Check, Sparkles, ChevronDown, ChevronRight, RefreshCw, Star, HelpCircle, Activity } from 'lucide-react';
+import { Loader2, Save, Video, Book, PlusCircle, Trash2, Edit2, X, Search, Download, Check, Sparkles, ChevronDown, ChevronRight, RefreshCw, Star, HelpCircle, Activity, SlidersHorizontal, Lock, Crown, Coins, FileJson, Upload, Copy } from 'lucide-react';
 import { useDevotionals } from '../../context/DevotionalContext';
 import { useToast } from '../../context/ToastContext';
 import { DevotionalItem, mockDevotionals } from '../../data/devotionals';
@@ -46,6 +46,8 @@ export function AdminTab() {
   const [devDescription, setDevDescription] = useState('');
   const [devWord, setDevWord] = useState('');
   const [devContent, setDevContent] = useState('');
+  const [devVisibility, setDevVisibility] = useState<'free' | 'vip' | 'secret'>('free');
+  const [devCoinCost, setDevCoinCost] = useState<number>(30);
   const [savingDev, setSavingDev] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -57,6 +59,8 @@ export function AdminTab() {
   // Bulk generation
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [bulkTheme, setBulkTheme] = useState('');
+  const [bulkVisibility, setBulkVisibility] = useState<'free' | 'vip' | 'secret'>('free');
+  const [bulkCoinCost, setBulkCoinCost] = useState<number>(30);
   const [generatingBulk, setGeneratingBulk] = useState(false);
   const [bulkProgress, setBulkProgress] = useState('');
   const [expandedThemes, setExpandedThemes] = useState<Record<string, boolean>>({});
@@ -118,6 +122,19 @@ export function AdminTab() {
   const [videoSearchQuery, setVideoSearchQuery] = useState('');
   const [confirmClearDaily, setConfirmClearDaily] = useState(false);
   const [adminFirestoreDevotionals, setAdminFirestoreDevotionals] = useState<DevotionalItem[]>([]);
+
+  // Module Edit (Bulk visibility and rename)
+  const [editingModuleTheme, setEditingModuleTheme] = useState<{ theme: string; devs: DevotionalItem[] } | null>(null);
+  const [moduleEditThemeName, setModuleEditThemeName] = useState('');
+  const [moduleEditVisibility, setModuleEditVisibility] = useState<'free' | 'vip' | 'secret'>('free');
+  const [moduleEditCoinCost, setModuleEditCoinCost] = useState(30);
+  const [savingModuleEdit, setSavingModuleEdit] = useState(false);
+
+  // Bulk JSON Ingestion Tool
+  const [showJsonImportModal, setShowJsonImportModal] = useState(false);
+  const [jsonImportText, setJsonImportText] = useState('');
+  const [isImportingJson, setIsImportingJson] = useState(false);
+  const [jsonImportProgress, setJsonImportProgress] = useState('');
 
   // Escuta em tempo real 100% dos devocionais do Firestore para o painel Admin (sem limite de paginação)
   useEffect(() => {
@@ -449,6 +466,8 @@ export function AdminTab() {
           description: devDescription || devTitle,
           beautifulWord: devWord,
           content: devContent,
+          visibility: devVisibility,
+          coinCost: devVisibility === 'secret' ? (Number(devCoinCost) || 30) : 0,
         });
       } else {
         const devRef = doc(collection(db, 'devotionals'));
@@ -459,6 +478,8 @@ export function AdminTab() {
           description: devDescription || devTitle,
           beautifulWord: devWord,
           content: devContent,
+          visibility: devVisibility,
+          coinCost: devVisibility === 'secret' ? (Number(devCoinCost) || 30) : 0,
           createdAt: serverTimestamp()
         });
       }
@@ -485,6 +506,8 @@ export function AdminTab() {
     setDevDescription(dev.description);
     setDevWord(dev.beautifulWord);
     setDevContent(dev.content);
+    setDevVisibility(dev.visibility || 'free');
+    setDevCoinCost(dev.coinCost || 30);
     setShowManualModal(true);
   };
 
@@ -524,6 +547,167 @@ export function AdminTab() {
     }
   };
 
+  const handleOpenEditModule = (theme: string, devs: DevotionalItem[], e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const firstDev = devs[0];
+    setEditingModuleTheme({ theme, devs });
+    setModuleEditThemeName(theme);
+    setModuleEditVisibility(firstDev?.visibility || 'free');
+    setModuleEditCoinCost(firstDev?.coinCost || 30);
+  };
+
+  const handleSaveModuleEdit = async () => {
+    if (!editingModuleTheme) return;
+    const newThemeName = moduleEditThemeName.trim();
+    if (!newThemeName) {
+      toast.error("O tema do módulo não pode ficar vazio.");
+      return;
+    }
+    setSavingModuleEdit(true);
+    try {
+      for (const d of editingModuleTheme.devs) {
+        await updateGlobalDevotional(d.id, {
+          theme: newThemeName,
+          visibility: moduleEditVisibility,
+          coinCost: moduleEditVisibility === 'secret' ? (Number(moduleEditCoinCost) || 30) : 0,
+        });
+      }
+      toast.success("Módulo e visibilidade atualizados com sucesso!");
+      setEditingModuleTheme(null);
+    } catch (error) {
+      console.error("Erro ao atualizar módulo:", error);
+      toast.error("Erro ao atualizar módulo.");
+    } finally {
+      setSavingModuleEdit(false);
+    }
+  };
+
+  const parseJsonInput = (text: string): { devotionals: DevotionalItem[]; moduleCount: number } => {
+    const raw = JSON.parse(text);
+    const parsedDevs: DevotionalItem[] = [];
+    const themesSet = new Set<string>();
+
+    const processItem = (item: any, modTheme: string, modVis: 'free' | 'vip' | 'secret', modCost: number, index: number) => {
+      const title = item.title || `Dia ${index + 1}`;
+      const desc = item.description || (item.content ? item.content.slice(0, 120) + '...' : '');
+      const word = item.beautifulWord || item.verse || item.verseText || item.palavraChave || item.word || '';
+      const content = item.content || item.body || item.text || '';
+      const vis = item.visibility || (item.isSecret === true ? 'secret' : (item.isVip === true ? 'vip' : modVis));
+      const cost = Number(item.coinCost ?? item.unlockCost ?? (vis === 'secret' ? (modCost || 30) : 0));
+      const cleanThemeSlug = modTheme.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '-');
+      const uniqueId = item.id || `dev-${cleanThemeSlug}-d${index + 1}-${Math.random().toString(36).slice(2, 7)}`;
+
+      parsedDevs.push({
+        id: uniqueId,
+        theme: modTheme,
+        title,
+        description: desc,
+        beautifulWord: word,
+        content,
+        visibility: vis as any,
+        coinCost: cost,
+      });
+    };
+
+    if (Array.isArray(raw)) {
+      raw.forEach((entry: any, entryIdx: number) => {
+        if (!entry || typeof entry !== 'object') return;
+
+        // Check if this entry is a module with nested days / devotionals array
+        const daysArray = entry.days || entry.devotionals || entry.items || entry.aulas || entry.licoes;
+        if (Array.isArray(daysArray)) {
+          const modTheme = (entry.theme || entry.title || entry.moduleName || `Módulo ${entryIdx + 1}`).trim();
+          themesSet.add(modTheme);
+          const modVis: 'free' | 'vip' | 'secret' = entry.visibility || (entry.isSecret === true ? 'secret' : (entry.isVip === true ? 'vip' : 'free'));
+          const modCost = Number(entry.coinCost ?? entry.unlockCost ?? (modVis === 'secret' ? 30 : 0));
+
+          daysArray.forEach((day: any, dayIdx: number) => {
+            processItem(day, modTheme, modVis, modCost, dayIdx);
+          });
+        } else {
+          // Flat devotional entry
+          const theme = (entry.theme || 'Geral').trim();
+          themesSet.add(theme);
+          const vis: 'free' | 'vip' | 'secret' = entry.visibility || (entry.isSecret === true ? 'secret' : (entry.isVip === true ? 'vip' : 'free'));
+          const cost = Number(entry.coinCost ?? entry.unlockCost ?? (vis === 'secret' ? 30 : 0));
+          processItem(entry, theme, vis, cost, parsedDevs.length);
+        }
+      });
+    } else if (raw && typeof raw === 'object') {
+      const modulesList = raw.modules || raw.modulos || raw.data || raw.devotionals || raw.items;
+      if (Array.isArray(modulesList)) {
+        modulesList.forEach((entry: any, entryIdx: number) => {
+          const daysArray = entry.days || entry.devotionals || entry.items;
+          if (Array.isArray(daysArray)) {
+            const modTheme = (entry.theme || entry.title || `Módulo ${entryIdx + 1}`).trim();
+            themesSet.add(modTheme);
+            const modVis: 'free' | 'vip' | 'secret' = entry.visibility || (entry.isSecret === true ? 'secret' : (entry.isVip === true ? 'vip' : 'free'));
+            const modCost = Number(entry.coinCost ?? entry.unlockCost ?? (modVis === 'secret' ? 30 : 0));
+            daysArray.forEach((day: any, dayIdx: number) => {
+              processItem(day, modTheme, modVis, modCost, dayIdx);
+            });
+          } else {
+            const theme = (entry.theme || 'Geral').trim();
+            themesSet.add(theme);
+            const vis: 'free' | 'vip' | 'secret' = entry.visibility || (entry.isSecret === true ? 'secret' : (entry.isVip === true ? 'vip' : 'free'));
+            const cost = Number(entry.coinCost ?? entry.unlockCost ?? (vis === 'secret' ? 30 : 0));
+            processItem(entry, theme, vis, cost, parsedDevs.length);
+          }
+        });
+      }
+    }
+
+    return { devotionals: parsedDevs, moduleCount: themesSet.size };
+  };
+
+  const handleExecuteJsonImport = async () => {
+    if (!jsonImportText.trim()) {
+      toast.error("Por favor, cole o código JSON.");
+      return;
+    }
+
+    setIsImportingJson(true);
+    setJsonImportProgress("Lendo e validando estrutura do JSON...");
+    try {
+      const { devotionals, moduleCount } = parseJsonInput(jsonImportText);
+      if (devotionals.length === 0) {
+        toast.error("Nenhum devocional válido encontrado no JSON. Verifique a estrutura.");
+        setIsImportingJson(false);
+        return;
+      }
+
+      setJsonImportProgress(`Gravando ${devotionals.length} devocionais de ${moduleCount} módulos no Firebase...`);
+
+      // Divide em lotes de 400 operações (limite do Firestore é 500 por writeBatch)
+      const chunkSize = 400;
+      for (let i = 0; i < devotionals.length; i += chunkSize) {
+        const chunk = devotionals.slice(i, i + chunkSize);
+        const batch = writeBatch(db);
+        chunk.forEach(dev => {
+          const docRef = doc(db, 'devotionals', dev.id);
+          batch.set(docRef, {
+            ...dev,
+            id: dev.id,
+            deleted: false,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          }, { merge: true });
+        });
+        await batch.commit();
+      }
+
+      toast.success(`🎉 Sucesso! ${devotionals.length} devocionais (${moduleCount} módulos) foram importados com sucesso!`);
+      setJsonImportText('');
+      setShowJsonImportModal(false);
+    } catch (err: any) {
+      console.error("Erro ao importar JSON:", err);
+      toast.error(`Erro ao processar JSON: ${err.message || 'Verifique se a sintaxe está correta.'}`);
+    } finally {
+      setIsImportingJson(false);
+      setJsonImportProgress('');
+    }
+  };
+
   const resetForm = () => {
     setEditingId(null);
     setDevTheme('');
@@ -533,6 +717,8 @@ export function AdminTab() {
     setDevDescription('');
     setDevWord('');
     setDevContent('');
+    setDevVisibility('free');
+    setDevCoinCost(30);
     setShowManualModal(false);
   };
 
@@ -665,6 +851,8 @@ export function AdminTab() {
           description: day.description || `Dia ${dayNumber} do módulo ${finalThemeName}`,
           beautifulWord: day.beautifulWord || '',
           content: day.content || '',
+          visibility: bulkVisibility,
+          coinCost: bulkVisibility === 'secret' ? (Number(bulkCoinCost) || 30) : 0,
           createdAt: serverTimestamp()
         });
       }
@@ -887,10 +1075,18 @@ export function AdminTab() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white">Acervo & Jornada</h3>
               
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                <button
+                  onClick={() => setShowJsonImportModal(true)}
+                  className="bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 font-semibold py-2.5 px-3.5 rounded-xl flex items-center gap-1.5 transition-colors text-sm border border-purple-200 dark:border-purple-800/50"
+                  title="Importar Lote de Módulos e Devocionais via JSON"
+                >
+                  <FileJson className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                  <span>Importar JSON</span>
+                </button>
                 <button
                   onClick={() => setShowManualModal(true)}
-                  className="bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 font-semibold py-2.5 px-4 rounded-xl flex items-center gap-2 transition-colors text-sm border border-transparent dark:border-slate-700"
+                  className="bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 font-semibold py-2.5 px-3.5 rounded-xl flex items-center gap-1.5 transition-colors text-sm border border-transparent dark:border-slate-700"
                 >
                   <PlusCircle className="w-4 h-4" />
                   <span className="hidden sm:inline">Adicionar Manual</span>
@@ -901,8 +1097,8 @@ export function AdminTab() {
                   className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold py-2.5 px-4 rounded-xl flex items-center gap-2 transition-all shadow-md text-sm"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span className="hidden sm:inline">Gerar Módulo com IA</span>
-                  <span className="sm:hidden">Gerar com IA</span>
+                  <span className="hidden sm:inline">Gerar com IA</span>
+                  <span className="sm:hidden">IA</span>
                 </button>
               </div>
             </div>
@@ -957,13 +1153,57 @@ export function AdminTab() {
                             onClick={() => toggleTheme(theme)}
                             className="flex items-center justify-between p-5 cursor-pointer bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
                           >
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 flex-wrap">
                               <h4 className="font-bold text-gray-900 dark:text-white text-base">{displayHeaderTheme}</h4>
                               <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200">
                                 {isDiaAvulso && devs.length === 1 ? 'Dia Avulso' : `${devs.length} ${devs.length === 1 ? 'dia' : 'dias'}`}
                               </span>
+                              {/* Visibility Badge */}
+                              {(() => {
+                                const firstDev = devs[0];
+                                const vis = firstDev?.visibility || 'free';
+                                const cost = firstDev?.coinCost || 30;
+                                if (vis === 'secret') {
+                                  return (
+                                    <button 
+                                      onClick={(e) => handleOpenEditModule(theme, devs, e)}
+                                      title="Clique para editar a visibilidade do módulo"
+                                      className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-900 dark:text-amber-300 border border-amber-500/30 flex items-center gap-1 hover:bg-amber-500/25 transition-colors cursor-pointer"
+                                    >
+                                      <span>🔮</span> Secreto • 🪙 {cost}
+                                    </button>
+                                  );
+                                }
+                                if (vis === 'vip') {
+                                  return (
+                                    <button 
+                                      onClick={(e) => handleOpenEditModule(theme, devs, e)}
+                                      title="Clique para editar a visibilidade do módulo"
+                                      className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-yellow-500/20 text-yellow-900 dark:text-yellow-300 border border-yellow-500/40 flex items-center gap-1 hover:bg-yellow-500/30 transition-colors cursor-pointer"
+                                    >
+                                      <span>👑</span> Exclusivo VIP
+                                    </button>
+                                  );
+                                }
+                                return (
+                                  <button 
+                                    onClick={(e) => handleOpenEditModule(theme, devs, e)}
+                                    title="Clique para editar a visibilidade do módulo"
+                                    className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 flex items-center gap-1 hover:bg-emerald-500/25 transition-colors cursor-pointer"
+                                  >
+                                    <span>🟢</span> Gratuito
+                                  </button>
+                                );
+                              })()}
                             </div>
                           <div className="flex items-center gap-2">
+                            <button 
+                              onClick={(e) => handleOpenEditModule(theme, devs, e)}
+                              className="p-1.5 text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/40 rounded-lg transition-colors"
+                              title="Editar Módulo e Visibilidade"
+                            >
+                              <SlidersHorizontal className="w-4 h-4" />
+                            </button>
                             {confirmDeleteModuleTheme === theme ? (
                               <div className="flex items-center bg-red-50 dark:bg-red-900/20 rounded-lg shadow-sm p-1 gap-1 border border-red-100 dark:border-red-800" onClick={(e) => e.stopPropagation()}>
                                 <button
@@ -1360,6 +1600,69 @@ export function AdminTab() {
                 />
               </div>
               <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Visibilidade e Acesso do Módulo</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDevVisibility('free')}
+                    className={cn(
+                      "p-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1.5",
+                      devVisibility === 'free'
+                        ? "border-emerald-500 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-500 ring-2 ring-emerald-500/20"
+                        : "border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
+                    )}
+                  >
+                    <span className="text-base">🟢</span>
+                    <span>Gratuito</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDevVisibility('vip')}
+                    className={cn(
+                      "p-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1.5",
+                      devVisibility === 'vip'
+                        ? "border-yellow-500 bg-yellow-50 text-yellow-900 dark:bg-yellow-950/50 dark:text-yellow-300 dark:border-yellow-500 ring-2 ring-yellow-500/20"
+                        : "border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
+                    )}
+                  >
+                    <span className="text-base">👑</span>
+                    <span>Exclusivo VIP</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDevVisibility('secret')}
+                    className={cn(
+                      "p-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1.5",
+                      devVisibility === 'secret'
+                        ? "border-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-500 ring-2 ring-amber-500/20"
+                        : "border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
+                    )}
+                  >
+                    <span className="text-base">🔮</span>
+                    <span>Secreto (Moedas)</span>
+                  </button>
+                </div>
+                {devVisibility === 'secret' && (
+                  <div className="mt-3 p-3 bg-amber-500/10 dark:bg-amber-950/30 rounded-xl border border-amber-500/20 animate-in fade-in duration-150">
+                    <label className="block text-xs font-bold text-amber-900 dark:text-amber-300 mb-1">
+                      Custo para Desbloqueio (Moedas):
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={devCoinCost}
+                      onChange={(e) => setDevCoinCost(Number(e.target.value) || 0)}
+                      placeholder="Ex: 30"
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-lg text-sm text-gray-900 dark:text-white"
+                    />
+                    <p className="text-[11px] text-amber-800 dark:text-amber-400 mt-1">
+                      Os usuários poderão gastar moedas obtidas em missões diárias para liberar permanentemente este módulo.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div>
                 <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Reflexão (Conteúdo Completo) *</label>
                 <textarea 
                   value={devContent}
@@ -1642,6 +1945,68 @@ export function AdminTab() {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                  Visibilidade do Módulo Gerado
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    disabled={generatingBulk}
+                    onClick={() => setBulkVisibility('free')}
+                    className={cn(
+                      "p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1",
+                      bulkVisibility === 'free'
+                        ? "border-emerald-500 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-300 ring-2 ring-emerald-500/20"
+                        : "border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
+                    )}
+                  >
+                    <span>🟢 Gratuito</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={generatingBulk}
+                    onClick={() => setBulkVisibility('vip')}
+                    className={cn(
+                      "p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1",
+                      bulkVisibility === 'vip'
+                        ? "border-yellow-500 bg-yellow-50 text-yellow-900 dark:bg-yellow-950/50 dark:text-yellow-300 ring-2 ring-yellow-500/20"
+                        : "border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
+                    )}
+                  >
+                    <span>👑 VIP</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={generatingBulk}
+                    onClick={() => setBulkVisibility('secret')}
+                    className={cn(
+                      "p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1",
+                      bulkVisibility === 'secret'
+                        ? "border-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-950/50 dark:text-amber-300 ring-2 ring-amber-500/20"
+                        : "border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
+                    )}
+                  >
+                    <span>🔮 Secreto</span>
+                  </button>
+                </div>
+                {bulkVisibility === 'secret' && (
+                  <div className="mt-3 p-3 bg-amber-500/10 dark:bg-amber-950/30 rounded-xl border border-amber-500/20">
+                    <label className="block text-xs font-bold text-amber-900 dark:text-amber-300 mb-1">
+                      Custo em Moedas:
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      disabled={generatingBulk}
+                      value={bulkCoinCost}
+                      onChange={(e) => setBulkCoinCost(Number(e.target.value) || 0)}
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-lg text-sm text-gray-900 dark:text-white"
+                    />
+                  </div>
+                )}
+              </div>
+
               <button
                 onClick={handleBulkGenerate}
                 disabled={generatingBulk || !bulkTheme.trim()}
@@ -1656,6 +2021,289 @@ export function AdminTab() {
                   <>
                     <Sparkles className="w-5 h-5" />
                     Iniciar Geração Mágica
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Module / Visibility Modal */}
+      {editingModuleTheme && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 dark:border-slate-800 space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center pb-3 border-b border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300 rounded-xl">
+                  <SlidersHorizontal className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 dark:text-white text-lg">Editar Módulo e Visibilidade</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Aplica as alterações a todos os {editingModuleTheme.devs.length} {editingModuleTheme.devs.length === 1 ? 'dia' : 'dias'} deste módulo
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setEditingModuleTheme(null)}
+                disabled={savingModuleEdit}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                  Nome do Tema / Módulo
+                </label>
+                <input
+                  type="text"
+                  value={moduleEditThemeName}
+                  onChange={(e) => setModuleEditThemeName(e.target.value)}
+                  disabled={savingModuleEdit}
+                  placeholder="Nome do tema..."
+                  className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-gray-900 dark:text-white text-sm disabled:opacity-50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                  Tipo de Acesso / Visibilidade
+                </label>
+                <div className="grid grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    disabled={savingModuleEdit}
+                    onClick={() => setModuleEditVisibility('free')}
+                    className={cn(
+                      "p-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1.5 text-center",
+                      moduleEditVisibility === 'free'
+                        ? "border-emerald-500 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-300 ring-2 ring-emerald-500/20"
+                        : "border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
+                    )}
+                  >
+                    <span className="text-base">🟢</span>
+                    <span>Gratuito</span>
+                    <span className="text-[10px] font-normal opacity-80">Acesso livre</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingModuleEdit}
+                    onClick={() => setModuleEditVisibility('vip')}
+                    className={cn(
+                      "p-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1.5 text-center",
+                      moduleEditVisibility === 'vip'
+                        ? "border-yellow-500 bg-yellow-50 text-yellow-900 dark:bg-yellow-950/50 dark:text-yellow-300 ring-2 ring-yellow-500/20"
+                        : "border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
+                    )}
+                  >
+                    <span className="text-base">👑</span>
+                    <span>Exclusivo VIP</span>
+                    <span className="text-[10px] font-normal opacity-80">Assinantes VIP</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingModuleEdit}
+                    onClick={() => setModuleEditVisibility('secret')}
+                    className={cn(
+                      "p-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1.5 text-center",
+                      moduleEditVisibility === 'secret'
+                        ? "border-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-950/50 dark:text-amber-300 ring-2 ring-amber-500/20"
+                        : "border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
+                    )}
+                  >
+                    <span className="text-base">🔮</span>
+                    <span>Secreto</span>
+                    <span className="text-[10px] font-normal opacity-80">Por moedas</span>
+                  </button>
+                </div>
+
+                {moduleEditVisibility === 'secret' && (
+                  <div className="mt-3 p-3.5 bg-amber-500/10 dark:bg-amber-950/30 rounded-xl border border-amber-500/20 space-y-2">
+                    <label className="block text-xs font-bold text-amber-900 dark:text-amber-300">
+                      Custo para desbloquear este módulo (Moedas):
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        disabled={savingModuleEdit}
+                        value={moduleEditCoinCost}
+                        onChange={(e) => setModuleEditCoinCost(Number(e.target.value) || 0)}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-lg text-sm font-bold text-gray-900 dark:text-white"
+                      />
+                      <span className="text-xs text-amber-800 dark:text-amber-300 font-semibold whitespace-nowrap">
+                        🪙 moedas
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                      Uma vez desbloqueado com moedas, o usuário terá acesso permanente aos {editingModuleTheme.devs.length} dias deste módulo.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingModuleTheme(null)}
+                  disabled={savingModuleEdit}
+                  className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveModuleEdit}
+                  disabled={savingModuleEdit || !moduleEditThemeName.trim()}
+                  className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 transition-all shadow-md flex items-center gap-2"
+                >
+                  {savingModuleEdit ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Salvando...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Salvar Módulo
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* JSON Bulk Import / Injector Modal */}
+      {showJsonImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-gray-100 dark:border-slate-800 space-y-4 max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center pb-3 border-b border-gray-100 dark:border-slate-800 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300 rounded-xl">
+                  <FileJson className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 dark:text-white text-lg">Injeção em Massa via JSON</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Cole múltiplos módulos e devocionais (ex: 10 módulos de 7 dias = 70 devocionais de uma só vez)
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowJsonImportModal(false)}
+                disabled={isImportingJson}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto space-y-4 flex-1 pr-1">
+              <div className="flex items-center justify-between bg-purple-50 dark:bg-purple-950/40 p-3 rounded-xl border border-purple-100 dark:border-purple-900/40 text-xs">
+                <span className="text-purple-900 dark:text-purple-300 font-medium">
+                  💡 Aceita tanto formato de <strong>Array de Módulos</strong> quanto <strong>Array de Devocionais</strong>.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sampleTemplate = JSON.stringify([
+                      {
+                        "theme": "Guerra Espiritual - Nível 1",
+                        "visibility": "secret",
+                        "coinCost": 30,
+                        "days": [
+                          {
+                            "title": "Dia 1: A Armadura de Deus",
+                            "description": "Uma reflexão sobre estar pronto para as batalhas diárias da fé.",
+                            "beautifulWord": "\"Revesti-vos de toda a armadura de Deus.\" (Efésios 6:11)",
+                            "content": "Texto completo da reflexão do dia 1...\n\n**Oração:**\nSenhor, guarda o meu coração e a minha mente hoje. Amém."
+                          }
+                        ]
+                      }
+                    ], null, 2);
+                    navigator.clipboard.writeText(sampleTemplate);
+                    toast.success("Molde copiado para a área de transferência!");
+                  }}
+                  className="px-2.5 py-1 bg-white dark:bg-slate-800 text-purple-700 dark:text-purple-300 rounded-lg border border-purple-200 dark:border-purple-700 hover:bg-purple-100 dark:hover:bg-purple-900/50 font-bold flex items-center gap-1 transition-all shrink-0 ml-2 shadow-xs cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Copiar Molde JSON
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 uppercase tracking-wider">
+                  Cole seu JSON aqui:
+                </label>
+                <textarea
+                  rows={10}
+                  value={jsonImportText}
+                  onChange={(e) => setJsonImportText(e.target.value)}
+                  disabled={isImportingJson}
+                  placeholder={`[\n  {\n    "theme": "Guerra Espiritual",\n    "visibility": "secret",\n    "coinCost": 30,\n    "days": [\n      {\n        "title": "Dia 1: A Armadura",\n        "description": "...",\n        "beautifulWord": "...",\n        "content": "..."\n      }\n    ]\n  }\n]`}
+                  className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-950 font-mono text-xs text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all placeholder:text-gray-400"
+                />
+              </div>
+
+              {/* Real-time parse indicator */}
+              {jsonImportText.trim() && (() => {
+                try {
+                  const { devotionals, moduleCount } = parseJsonInput(jsonImportText);
+                  return (
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/50 rounded-xl flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-bold">
+                        <Check className="w-4 h-4 text-emerald-600" />
+                        <span>JSON Válido! Reconhecido: <strong>{moduleCount} módulos</strong> com total de <strong>{devotionals.length} devocionais</strong>.</span>
+                      </div>
+                    </div>
+                  );
+                } catch (e: any) {
+                  return (
+                    <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 rounded-xl text-xs text-red-700 dark:text-red-300 font-medium">
+                      ⚠️ JSON incompleto ou com erro de sintaxe: {e.message}
+                    </div>
+                  );
+                }
+              })()}
+
+              {jsonImportProgress && (
+                <div className="p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/50 rounded-xl flex items-center gap-2 text-xs text-blue-800 dark:text-blue-300 font-medium animate-pulse">
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                  <span>{jsonImportProgress}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-gray-100 dark:border-slate-800 flex items-center justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowJsonImportModal(false)}
+                disabled={isImportingJson}
+                className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteJsonImport}
+                disabled={isImportingJson || !jsonImportText.trim()}
+                className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 transition-all shadow-md flex items-center gap-2"
+              >
+                {isImportingJson ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Injetando no Firebase...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4" />
+                    Injetar no Firebase
                   </>
                 )}
               </button>

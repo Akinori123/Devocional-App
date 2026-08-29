@@ -12,6 +12,7 @@ interface DevotionalContextData {
   customDevotionals: DevotionalItem[];
   addCustomDevotional: (item: DevotionalItem) => Promise<void>;
   allDevotionals: DevotionalItem[];
+  adminDevotionals: DevotionalItem[];
   activeDevotional: DevotionalItem | null;
   setActiveDevotional: (item: DevotionalItem | null) => void;
   deleteCustomDevotional: (id: string) => Promise<void>;
@@ -66,7 +67,8 @@ export function DevotionalProvider({ children }: { children: ReactNode }) {
     const unsubDev = onSnapshot(q, (snapshot) => {
       const devs = snapshot.docs.map(doc => ({
         ...doc.data(),
-        id: doc.id
+        id: doc.id,
+        isCustom: true
       })) as DevotionalItem[];
       setCustomDevotionals(devs);
     }, (error) => {
@@ -188,6 +190,7 @@ export function DevotionalProvider({ children }: { children: ReactNode }) {
       await setDoc(devRef, {
         ...item,
         id: devRef.id,
+        isCustom: true,
         createdAt: serverTimestamp()
       });
     } catch (error) {
@@ -240,11 +243,17 @@ export function DevotionalProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const allDevotionals = useMemo(() => [
+  // Administrative / Official Journey Modules only (no user personal custom devotionals)
+  const adminDevotionals = useMemo(() => [
     ...globalDevotionals.filter((g: any) => !g.deleted), 
     ...mockDevotionals.filter(m => !globalDevotionals.some(g => g.id === m.id)), 
+  ], [globalDevotionals]);
+
+  // Combined list for general ID lookups (reader, history, etc.)
+  const allDevotionals = useMemo(() => [
+    ...adminDevotionals, 
     ...customDevotionals
-  ], [globalDevotionals, customDevotionals]);
+  ], [adminDevotionals, customDevotionals]);
 
   const value = useMemo(() => ({
     readHistory,
@@ -254,6 +263,7 @@ export function DevotionalProvider({ children }: { children: ReactNode }) {
     addCustomDevotional,
     deleteCustomDevotional,
     allDevotionals,
+    adminDevotionals,
     activeDevotional,
     setActiveDevotional,
     globalDevotionals,
@@ -269,6 +279,7 @@ export function DevotionalProvider({ children }: { children: ReactNode }) {
     addCustomDevotional,
     deleteCustomDevotional,
     allDevotionals,
+    adminDevotionals,
     activeDevotional,
     setActiveDevotional,
     globalDevotionals,

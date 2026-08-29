@@ -4,7 +4,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getMessaging } from 'firebase-admin/messaging';
 import { MercadoPagoConfig, Preference, PreApproval, Payment } from 'mercadopago';
@@ -977,6 +977,102 @@ app.post("/api/gemini/generate-bulk-devotionals", async (req, res) => {
   }
 });
 
+app.post("/api/gemini/summarize-diary", async (req, res) => {
+  try {
+    const { notes } = req.body;
+    let apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Chave GEMINI_API_KEY do servidor não configurada." });
+    }
+
+    if (!notes || !Array.isArray(notes) || notes.length === 0) {
+      return res.status(400).json({ error: "Nenhuma anotação fornecida para o resumo." });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+
+    const notesSummaryText = notes
+      .map((n, i) => `[Registro ${i + 1} - ${n.date || 'Sem data'}]:\n${n.content || ''}`)
+      .join('\n\n');
+
+    const prompt = `Você é um mentor e conselheiro espiritual cristão acolhedor, empático e sábio do aplicativo Florescer.
+Abaixo estão as reflexões e anotações do diário espiritual de um usuário nos últimos dias:
+
+---
+${notesSummaryText}
+---
+
+Sua missão é gerar um "Resumo Espiritual Semanal" caloroso, pastoral e inspirador.
+Retorne um JSON estruturado com os seguintes campos:
+- "title": Título inspirador para a semana (ex: "Sua Jornada de Paz e Confiança")
+- "summary": Resumo geral reflexivo e afetuoso sobre os pensamentos e sentimentos expressos (2 a 3 parágrafos curtos).
+- "spiritualHighlights": Array com 2 a 4 pontos de destaque ou temas centrais identificados nas anotações (strings curtas com emoji).
+- "verseGuidance": Versículo bíblico encorajador para a semana com a referência (ex: "O Senhor é o meu pastor... (Salmos 23:1)").
+- "personalPrayer": Uma oração pessoal, profunda e encorajadora para encerrar a semana e abençoar a próxima.`;
+
+    const modelsToTry = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+    let response: any = null;
+    let lastError: any = null;
+
+    for (const model of modelsToTry) {
+      try {
+        response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            systemInstruction: "Você é um mentor cristão gentil e sábio. Retorne a resposta ESTRITAMENTE em formato JSON compatível com o schema solicitado.",
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                summary: { type: Type.STRING },
+                spiritualHighlights: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING }
+                },
+                verseGuidance: { type: Type.STRING },
+                personalPrayer: { type: Type.STRING }
+              },
+              required: ["title", "summary", "spiritualHighlights", "verseGuidance", "personalPrayer"]
+            }
+          }
+        });
+        if (response?.text) break;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[Diary Summary] Model ${model} failed, attempting next:`, err?.message || err);
+      }
+    }
+
+    if (!response?.text) {
+      throw lastError || new Error("Serviço de IA temporariamente indisponível. Tente novamente em instantes.");
+    }
+
+    let cleanText = response.text.trim();
+    if (cleanText.startsWith('```')) {
+      cleanText = cleanText.replace(/^```json\n?/g, '').replace(/^```\n?/g, '');
+      cleanText = cleanText.replace(/```$/g, '').trim();
+    }
+    const parsed = JSON.parse(cleanText);
+    res.json(parsed);
+  } catch (error: any) {
+    console.error("Error summarizing diary:", error);
+    let msg = error?.message || "Failed to generate diary summary";
+    if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota")) {
+      msg = "Limite de requisições por minuto da chave Gemini atingido. Aguarde 30 segundos e tente novamente.";
+    }
+    res.status(500).json({ error: msg });
+  }
+});
+
 app.post("/api/gemini/generate-image", async (req, res) => {
   try {
     const { prompt } = req.body;
@@ -1032,6 +1128,189 @@ app.post("/api/gemini/generate-image", async (req, res) => {
   } catch (error: any) {
     console.error("Error generating image:", error);
     res.status(500).json({ error: error.message || "Failed to generate image" });
+  }
+});
+
+// ==========================================
+// GAMIFICAÇÃO & MOEDAS FLORESCER (V2.0)
+// ATOMIC INCREMENT & SUBCOLEÇÃO DE HISTÓRICO
+// ==========================================
+
+// 1. Ganho de Moeda Diária (Atomic Increment + Ledger)
+app.post("/api/coins/award", async (req, res) => {
+  try {
+    const { userId, missionType, reason } = req.body;
+    if (!userId) {
+      return res.status(400).json({ error: "userId is required" });
+    }
+
+    const firestore = getFirestore();
+    const userRef = firestore.collection("users").doc(userId);
+    const userSnap = await userRef.get();
+
+    if (!userSnap.exists) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const userData = userSnap.data() || {};
+    
+    // Obter data de hoje no fuso de São Paulo
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+
+    // Se já recebeu moeda hoje, bloqueia novo ganho (Limite de 1 moeda/dia)
+    if (userData.lastCoinDate === today) {
+      return res.json({ 
+        awarded: false, 
+        reason: 'already_awarded_today', 
+        coins: userData.coins || 0,
+        lastCoinDate: today
+      });
+    }
+
+    const readableReason = reason || (
+      missionType === 'session_15min' ? 'Missão 15 min concluída' :
+      missionType === 'devotional_reading' ? 'Leitura devocional concluída' :
+      'Missão Diária Concluída'
+    );
+
+    // Operação Atômica no Firestore usando FieldValue.increment
+    await userRef.update({
+      coins: FieldValue.increment(1),
+      lastCoinDate: today,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+
+    const updatedSnap = await userRef.get();
+    const updatedData = updatedSnap.data() || {};
+    const newCoins = updatedData.coins ?? ((userData.coins || 0) + 1);
+
+    // Grava no Extrato / Subcoleção de Histórico (Auditoria Anti-Perda)
+    const historyDocRef = userRef.collection("coin_history").doc();
+    await historyDocRef.set({
+      id: historyDocRef.id,
+      userId,
+      amount: 1,
+      type: 'credit',
+      missionType: missionType || 'daily_mission',
+      reason: readableReason,
+      date: today,
+      balanceAfter: newCoins,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    console.log(`[Coins API] Awarded 1 coin to user ${userId}. Reason: ${readableReason}. New balance: ${newCoins}`);
+    return res.json({
+      awarded: true,
+      coins: newCoins,
+      lastCoinDate: today,
+      reason: readableReason
+    });
+  } catch (error: any) {
+    console.error("[Coins API] Error awarding coin:", error);
+    return res.status(500).json({ error: error?.message || "Failed to award daily coin" });
+  }
+});
+
+// 2. Gasto de Moedas para Desbloquear Módulo Secreto (Atomic Decrement + Ledger)
+app.post("/api/coins/spend", async (req, res) => {
+  try {
+    const { userId, amount = 30, moduleId, reason } = req.body;
+    if (!userId || !moduleId) {
+      return res.status(400).json({ error: "userId and moduleId are required" });
+    }
+
+    const numAmount = Math.abs(Number(amount)) || 30;
+    const firestore = getFirestore();
+    const userRef = firestore.collection("users").doc(userId);
+    const userSnap = await userRef.get();
+
+    if (!userSnap.exists) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const userData = userSnap.data() || {};
+    const currentCoins = userData.coins || 0;
+
+    if (currentCoins < numAmount) {
+      return res.status(400).json({ 
+        error: "Saldo insuficiente de moedas Florescer.", 
+        currentCoins, 
+        required: numAmount 
+      });
+    }
+
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    const readableReason = reason || `Módulo Secreto Desbloqueado (${moduleId})`;
+
+    // Operação Atômica: decremento de moedas e adição ao array de módulos desbloqueados
+    await userRef.update({
+      coins: FieldValue.increment(-numAmount),
+      unlockedSecretModules: FieldValue.arrayUnion(moduleId),
+      updatedAt: FieldValue.serverTimestamp()
+    });
+
+    const updatedSnap = await userRef.get();
+    const updatedData = updatedSnap.data() || {};
+    const newCoins = updatedData.coins ?? (currentCoins - numAmount);
+    const unlockedSecretModules = updatedData.unlockedSecretModules || [];
+
+    // Grava no Extrato / Subcoleção de Histórico
+    const historyDocRef = userRef.collection("coin_history").doc();
+    await historyDocRef.set({
+      id: historyDocRef.id,
+      userId,
+      amount: -numAmount,
+      type: 'debit',
+      moduleId,
+      reason: readableReason,
+      date: today,
+      balanceAfter: newCoins,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    console.log(`[Coins API] User ${userId} spent ${numAmount} coins on module '${moduleId}'. New balance: ${newCoins}`);
+    return res.json({
+      success: true,
+      coins: newCoins,
+      unlockedSecretModules,
+      reason: readableReason
+    });
+  } catch (error: any) {
+    console.error("[Coins API] Error spending coins:", error);
+    return res.status(500).json({ error: error?.message || "Failed to spend coins" });
+  }
+});
+
+// 3. Extrato / Histórico de Transações de Moedas
+app.get("/api/coins/history/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) {
+      return res.status(400).json({ error: "userId is required" });
+    }
+
+    const firestore = getFirestore();
+    const historySnap = await firestore
+      .collection("users")
+      .doc(userId)
+      .collection("coin_history")
+      .orderBy("createdAt", "desc")
+      .limit(100)
+      .get();
+
+    const history = historySnap.docs.map(doc => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        ...d,
+        createdAt: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : d.createdAt
+      };
+    });
+
+    return res.json({ history });
+  } catch (error: any) {
+    console.error("[Coins API] Error fetching coin history:", error);
+    return res.status(500).json({ error: error?.message || "Failed to fetch coin history" });
   }
 });
 

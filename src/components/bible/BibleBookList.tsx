@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { BibleBook, bibleBooks } from '../../data/bibleBooks';
-import { BookOpen, Search, X, Play, Crown, CheckCircle2, ChevronRight } from 'lucide-react';
+import { BookOpen, Search, X, Play, Crown, CheckCircle2, ChevronRight, Coins } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { TabType } from '../../types';
 import Fuse from 'fuse.js';
+import { MissionsModal } from '../gamification/MissionsModal';
+import { CoinIcon } from '../common/CoinIcon';
 
 interface BibleBookListProps {
   onSelectBook: (book: BibleBook) => void;
@@ -17,6 +19,7 @@ const normalizeText = (text: string) =>
 export function BibleBookList({ onSelectBook, onSelectDirectChapter, onChangeTab }: BibleBookListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [showMissionsModal, setShowMissionsModal] = useState(false);
   const { user, profile } = useAuth();
   const userName = profile?.name ? profile.name.split(' ')[0] : 'Irmã(o)';
 
@@ -233,7 +236,7 @@ export function BibleBookList({ onSelectBook, onSelectDirectChapter, onChangeTab
       {/* Header (scrolls naturally with page) */}
       <div className="bg-yellow-400 dark:bg-slate-900 text-yellow-950 dark:text-white shadow-sm rounded-b-3xl transition-colors duration-200 border-b border-yellow-500/20 dark:border-slate-800 overflow-hidden">
         {/* Top Bar with Logo & Avatar */}
-        <div className="bg-yellow-400 dark:bg-slate-800 px-6 pt-5 pb-2 flex justify-between items-center transition-colors duration-200 border-b border-yellow-950/20 dark:border-slate-700/60">
+        <div className="bg-yellow-400 dark:bg-slate-800 px-6 pt-5 pb-2.5 flex justify-between items-center transition-colors duration-200 border-b border-yellow-950/20 dark:border-slate-700/60">
           <div className="flex items-center gap-2.5">
             <div className="bg-white/40 dark:bg-slate-700/80 p-1 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-11 h-11 shrink-0 border border-white/40 dark:border-slate-600">
               <img src="/images/rosa.png" alt="Florescer" className="w-full h-full object-cover" />
@@ -241,16 +244,28 @@ export function BibleBookList({ onSelectBook, onSelectDirectChapter, onChangeTab
             <span className="font-serif font-bold text-yellow-950 dark:text-yellow-400 text-xl tracking-tight">Florescer</span>
           </div>
           
-          <button 
-            onClick={() => onChangeTab?.('profile')} 
-            className="w-11 h-11 rounded-full border-2 border-white/60 dark:border-slate-600 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 dark:bg-slate-700 hover:scale-105 transition-transform shrink-0"
-          >
-            {profile?.photoURL || user?.photoURL ? (
-              <img src={profile?.photoURL || user?.photoURL || ''} alt={userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-            ) : (
-              <span className="text-yellow-900 dark:text-yellow-400 font-bold text-base">{userName.charAt(0).toUpperCase()}</span>
-            )}
-          </button>
+          <div className="flex items-center gap-2.5">
+            {/* Saldo de Moedas */}
+            <button
+              onClick={() => setShowMissionsModal(true)}
+              className="bg-amber-500/15 hover:bg-amber-500/25 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-bold shadow-xs hover:scale-105 transition-all cursor-pointer shrink-0"
+              title="Ver Missões Diárias e Saldo de Moedas"
+            >
+              <CoinIcon className="w-4 h-4" />
+              <span>{profile?.coins || 0}</span>
+            </button>
+
+            <button 
+              onClick={() => onChangeTab?.('profile')} 
+              className="w-11 h-11 rounded-full border-2 border-white/60 dark:border-slate-600 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 dark:bg-slate-700 hover:scale-105 transition-transform shrink-0 cursor-pointer"
+            >
+              {profile?.photoURL || user?.photoURL ? (
+                <img src={profile?.photoURL || user?.photoURL || ''} alt={userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <span className="text-yellow-900 dark:text-yellow-400 font-bold text-base">{userName.charAt(0).toUpperCase()}</span>
+              )}
+            </button>
+          </div>
         </div>
 
         <div className="px-6 pt-3 pb-5">
@@ -371,6 +386,13 @@ export function BibleBookList({ onSelectBook, onSelectDirectChapter, onChangeTab
           </div>
         )}
       </div>
+
+      {/* Daily Missions Modal */}
+      <MissionsModal
+        isOpen={showMissionsModal}
+        onClose={() => setShowMissionsModal(false)}
+        onNavigateToDevotional={() => onChangeTab?.('journey')}
+      />
     </div>
   );
 }

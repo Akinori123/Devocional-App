@@ -18,25 +18,46 @@ export function BottomNav({ currentTab, onChangeTab }: BottomNavProps) {
   useEffect(() => {
     const handleScroll = (e: Event) => {
       let currentScrollY = 0;
-      if (e.target === document || e.target === window) {
-        currentScrollY = window.scrollY;
+      let isAtBottom = false;
+
+      if (e.target === document || e.target === window || !e.target) {
+        currentScrollY = window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0;
+        const scrollHeight = Math.max(
+          document.documentElement.scrollHeight,
+          document.body.scrollHeight,
+          document.documentElement.offsetHeight,
+          document.body.offsetHeight
+        );
+        const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+        if (windowHeight + currentScrollY >= scrollHeight - 35) {
+          isAtBottom = true;
+        }
       } else {
         const target = e.target as HTMLElement;
         if (target.scrollTop !== undefined) {
           currentScrollY = target.scrollTop;
+          if (target.scrollHeight - target.scrollTop - target.clientHeight <= 35) {
+            isAtBottom = true;
+          }
         } else {
           return;
         }
       }
+
+      // Se atingiu o final da página ou voltou ao topo, sempre exibe o menu
+      if (isAtBottom || currentScrollY < 50) {
+        setIsVisible(true);
+        lastScrollY.current = currentScrollY;
+        return;
+      }
+
+      // Controle de scroll normal com tolerância
       if (currentScrollY > lastScrollY.current + 10) {
         setIsVisible(false);
         lastScrollY.current = currentScrollY;
       } else if (currentScrollY < lastScrollY.current - 10) {
         setIsVisible(true);
         lastScrollY.current = currentScrollY;
-      }
-      if (currentScrollY < 50) {
-        setIsVisible(true);
       }
     };
 

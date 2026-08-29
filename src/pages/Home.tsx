@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { BookOpen, PlayCircle, Bookmark, Flame, AlertCircle, Video, ChevronRight, ChevronLeft, Sun, Moon, Sunrise, Music, History, Flower2, Crown, Lock, X, Sprout, Trees, Sparkles, CheckCircle2, RotateCcw } from 'lucide-react';
+import { BookOpen, PlayCircle, Bookmark, Flame, AlertCircle, Video, ChevronRight, ChevronLeft, Sun, Moon, Sunrise, Music, History, Flower2, Crown, Lock, X, Sprout, Trees, Sparkles, CheckCircle2, RotateCcw, Target, Coins } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useDevotionals } from '../context/DevotionalContext';
 import { sendEmailVerification } from 'firebase/auth';
@@ -15,6 +15,8 @@ import { getThemeStyle } from '../utils/themeStyle';
 
 import { DevotionalItem } from '../data/devotionals';
 import { YouTubeFacade } from '../components/video/YouTubeFacade';
+import { MissionsModal } from '../components/gamification/MissionsModal';
+import { CoinIcon } from '../components/common/CoinIcon';
 
 interface CarouselDevotionalItem extends DevotionalItem {
   dayNumber: number;
@@ -44,11 +46,12 @@ const GreetingIcon = () => {
 export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
   const toast = useToast();
   const { user, profile } = useAuth();
-  const { allDevotionals, readHistory, setActiveDevotional } = useDevotionals();
+  const { adminDevotionals, allDevotionals, readHistory, setActiveDevotional } = useDevotionals();
   const [resending, setResending] = useState(false);
   const [dailyData, setDailyData] = useState<{ videoId: string; verse: { text: string; reference: string }; isExclusive?: boolean; isPremium?: boolean }>(() => getDailyContent());
   const [isDailyLoading, setIsDailyLoading] = useState(true);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [showMissionsModal, setShowMissionsModal] = useState(false);
   
   const isAdmin = profile?.isAdmin === true || user?.email === 'dofekrafael@gmail.com' || user?.email === 'sjhonatan916@gmail.com' || user?.email === 'floresceremadoracao@gmail.com';
   const hasAccess = profile?.isPremium || isAdmin;
@@ -181,7 +184,7 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
 
   // Helper to sort devotionals within a theme sequentially
   const sortThemeDevotionals = (theme: string) => {
-    return allDevotionals
+    return adminDevotionals
       .filter(d => d.theme === theme)
       .sort((a, b) => {
         if (a.createdAt && b.createdAt) {
@@ -200,25 +203,25 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
 
   // Determine active theme based on user profile and read history
   const activeTheme = useMemo(() => {
-    if (profile?.activeTheme && allDevotionals.some(d => d.theme === profile.activeTheme)) {
+    if (profile?.activeTheme && adminDevotionals.some(d => d.theme === profile.activeTheme)) {
       return profile.activeTheme;
     }
     if (profile?.themeLastRead && Object.keys(profile.themeLastRead).length > 0) {
       const sortedThemes = Object.entries(profile.themeLastRead)
         .sort((a, b) => b[1].localeCompare(a[1]))
         .map(entry => entry[0]);
-      if (sortedThemes.length > 0 && allDevotionals.some(d => d.theme === sortedThemes[0])) {
+      if (sortedThemes.length > 0 && adminDevotionals.some(d => d.theme === sortedThemes[0])) {
         return sortedThemes[0];
       }
     }
     if (readHistory && readHistory.length > 0) {
       for (let i = readHistory.length - 1; i >= 0; i--) {
-        const dev = allDevotionals.find(d => d.id === readHistory[i]);
+        const dev = adminDevotionals.find(d => d.id === readHistory[i]);
         if (dev?.theme) return dev.theme;
       }
     }
     return null;
-  }, [profile?.activeTheme, profile?.themeLastRead, readHistory, allDevotionals]);
+  }, [profile?.activeTheme, profile?.themeLastRead, readHistory, adminDevotionals]);
 
   // Compute individual progress and carousel items
   const { hasActiveJourney, carouselItems, activeThemeName } = useMemo(() => {
@@ -317,7 +320,7 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
       {/* Header Container */}
       <div className="bg-yellow-400 dark:bg-slate-900 text-yellow-950 dark:text-white rounded-b-3xl shadow-sm transition-colors duration-200 border-b border-yellow-500/20 dark:border-slate-800 overflow-hidden">
         {/* Top Bar with Logo & Avatar */}
-        <div className="bg-yellow-400 dark:bg-slate-800 px-6 pt-5 pb-2 flex justify-between items-center transition-colors duration-200 border-b border-yellow-950/20 dark:border-slate-700/60">
+        <div className="bg-yellow-400 dark:bg-slate-800 px-6 pt-5 pb-2.5 flex justify-between items-center transition-colors duration-200 border-b border-yellow-950/20 dark:border-slate-700/60">
           <div className="flex items-center gap-2.5">
             <div className="bg-white/40 dark:bg-slate-700/80 p-1 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-11 h-11 shrink-0 border border-white/40 dark:border-slate-600">
               <img src="/images/rosa.png" alt="Florescer" className="w-full h-full object-cover" />
@@ -325,16 +328,28 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
             <span className="font-serif font-bold text-yellow-950 dark:text-yellow-400 text-xl tracking-tight">Florescer</span>
           </div>
           
-          <button 
-            onClick={() => onChangeTab('profile')} 
-            className="w-11 h-11 rounded-full border-2 border-white/60 dark:border-slate-600 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 dark:bg-slate-700 hover:scale-105 transition-transform shrink-0"
-          >
-            {profile?.photoURL || user?.photoURL ? (
-              <img src={profile?.photoURL || user?.photoURL || ''} alt={userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-            ) : (
-              <span className="text-yellow-900 dark:text-yellow-400 font-bold text-base">{userName.charAt(0).toUpperCase()}</span>
-            )}
-          </button>
+          <div className="flex items-center gap-2.5">
+            {/* Saldo de Moedas no Cabeçalho */}
+            <button
+              onClick={() => setShowMissionsModal(true)}
+              className="bg-amber-500/15 hover:bg-amber-500/25 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-bold shadow-xs hover:scale-105 transition-all cursor-pointer shrink-0"
+              title="Ver Missões Diárias e Saldo de Moedas"
+            >
+              <CoinIcon className="w-4 h-4" />
+              <span>{profile?.coins || 0}</span>
+            </button>
+
+            <button 
+              onClick={() => onChangeTab?.('profile')} 
+              className="w-11 h-11 rounded-full border-2 border-white/60 dark:border-slate-600 overflow-hidden shadow-sm flex items-center justify-center bg-yellow-100 dark:bg-slate-700 hover:scale-105 transition-transform shrink-0"
+            >
+              {profile?.photoURL || user?.photoURL ? (
+                <img src={profile?.photoURL || user?.photoURL || ''} alt={userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <span className="text-yellow-900 dark:text-yellow-400 font-bold text-base">{userName.charAt(0).toUpperCase()}</span>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Greeting & Streak Area */}
@@ -352,16 +367,29 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
             </div>
           </div>
 
-          <div id="tour-streak" className="bg-white/40 dark:bg-slate-800/80 px-4 py-2.5 rounded-xl border border-white/60 dark:border-slate-700 backdrop-blur-md shadow-sm flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <Flame className="w-6 h-6 text-orange-500 fill-orange-500 shrink-0 filter drop-shadow-sm" />
-              <p className="text-sm font-semibold text-yellow-950 dark:text-gray-100 truncate">
+          <div id="tour-streak" className="bg-white/40 dark:bg-slate-800/80 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border border-white/60 dark:border-slate-700 backdrop-blur-md shadow-sm flex items-center justify-between gap-2.5">
+            {/* Ofensiva */}
+            <div className="flex items-center gap-2 shrink-0">
+              <Flame className="w-5 h-5 sm:w-5.5 sm:h-5.5 text-orange-500 fill-orange-500 shrink-0 filter drop-shadow-sm" />
+              <p className="text-sm font-bold text-yellow-950 dark:text-gray-100 whitespace-nowrap">
                 {getJourneyContent().text}
               </p>
             </div>
+
+            {/* Trigger Central: 🎯 Missões */}
+            <button
+              onClick={() => setShowMissionsModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-yellow-500/25 hover:bg-yellow-500/35 dark:bg-slate-700/80 dark:hover:bg-slate-700 text-yellow-950 dark:text-yellow-300 border border-yellow-600/25 dark:border-slate-600 font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+              title="Abrir Missões Diárias"
+            >
+              <Target className="w-3.5 h-3.5 text-amber-700 dark:text-yellow-400" />
+              <span>Missões</span>
+            </button>
+
+            {/* Status */}
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/60 dark:border-slate-600 bg-white/60 dark:bg-slate-700/80 shadow-xs shrink-0 backdrop-blur-md">
-              <span className="text-base leading-none select-none">{getJourneyContent().emoji}</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-yellow-950 dark:text-yellow-300">
+              <span className="text-sm sm:text-base leading-none select-none">{getJourneyContent().emoji}</span>
+              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-yellow-950 dark:text-yellow-300 whitespace-nowrap">
                 {getJourneyContent().label}
               </span>
             </div>
@@ -703,6 +731,12 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
           </div>
         </div>
       )}
+      {/* Daily Missions Modal */}
+      <MissionsModal
+        isOpen={showMissionsModal}
+        onClose={() => setShowMissionsModal(false)}
+        onNavigateToDevotional={() => onChangeTab?.('journey')}
+      />
     </div>
   );
 }
