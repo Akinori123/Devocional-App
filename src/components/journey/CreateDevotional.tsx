@@ -259,7 +259,7 @@ export function CreateDevotional({ onBack, initialTheme, onChangeTab }: CreateDe
             </p>
 
             <div className="w-full bg-yellow-50/80 dark:bg-yellow-950/30 rounded-xl p-3.5 border border-yellow-100 dark:border-yellow-900/50 mb-5">
-              <div className="text-2xl font-black text-gray-900 dark:text-white mb-0.5">R$ 1,00 <span className="text-xs font-normal text-gray-500 dark:text-gray-400">/ mês</span></div>
+              <div className="text-2xl font-black text-gray-900 dark:text-white mb-0.5">R$ 29,90 <span className="text-xs font-normal text-gray-500 dark:text-gray-400">/ mês</span></div>
               <p className="text-xs text-gray-500 dark:text-gray-400">Acesso a 10 gerações diárias e todo conteúdo exclusivo.</p>
             </div>
 

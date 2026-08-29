@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { doc, getDoc, setDoc, collection, serverTimestamp, getDocs, query, orderBy, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { Loader2, Save, Video, Book, PlusCircle, Trash2, Edit2, X, Search, Download, Check, Sparkles, ChevronDown, ChevronRight, RefreshCw, Star, HelpCircle } from 'lucide-react';
+import { Loader2, Save, Video, Book, PlusCircle, Trash2, Edit2, X, Search, Download, Check, Sparkles, ChevronDown, ChevronRight, RefreshCw, Star, HelpCircle, Activity } from 'lucide-react';
 import { useDevotionals } from '../../context/DevotionalContext';
 import { useToast } from '../../context/ToastContext';
 import { DevotionalItem, mockDevotionals } from '../../data/devotionals';
 import { cn } from '../../lib/utils';
+import { ApiMonitoringDashboard } from '../admin/ApiMonitoringDashboard';
+import { recordApiUsage } from '../../services/apiMetricsService';
 
 const normalizeThemeName = (theme: string) => {
   let normalized = theme.toLowerCase()
@@ -59,7 +61,7 @@ export function AdminTab() {
   const [bulkProgress, setBulkProgress] = useState('');
   const [expandedThemes, setExpandedThemes] = useState<Record<string, boolean>>({});
 
-  const [activeTab, setActiveTab] = useState<'daily' | 'library' | 'videos'>('daily');
+  const [activeTab, setActiveTab] = useState<'daily' | 'library' | 'videos' | 'metrics'>('daily');
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualCreationType, setManualCreationType] = useState<'single' | 'existing_module' | 'new_module'>('single');
   const [allThemes, setAllThemes] = useState<string[]>([]);
@@ -592,6 +594,9 @@ export function AdminTab() {
 
       await batch.commit();
       
+      // Registra consumo das 7 requisições da IA
+      recordApiUsage('gemini', generatedDays.length || 7);
+
       toast.success(`Módulo "${finalThemeName}" com 7 dias gerado e salvo com sucesso!`);
       setShowBulkModal(false);
       setBulkTheme('');
@@ -635,10 +640,10 @@ export function AdminTab() {
 
   return (
     <div className="animate-in fade-in duration-300">
-      <div className="flex bg-gray-100/80 dark:bg-slate-800/80 p-1.5 rounded-2xl mb-8 border border-gray-200/50 dark:border-slate-700/50 backdrop-blur-sm">
+      <div className="flex bg-gray-100/80 dark:bg-slate-800/80 p-1.5 rounded-2xl mb-8 border border-gray-200/50 dark:border-slate-700/50 backdrop-blur-sm gap-1 overflow-x-auto">
         <button
           onClick={() => setActiveTab('daily')}
-          className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${
+          className={`flex-1 min-w-[120px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all ${
             activeTab === 'daily' 
               ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md ring-1 ring-black/5 dark:ring-white/10' 
               : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
@@ -648,7 +653,7 @@ export function AdminTab() {
         </button>
         <button
           onClick={() => setActiveTab('library')}
-          className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${
+          className={`flex-1 min-w-[120px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all ${
             activeTab === 'library' 
               ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md ring-1 ring-black/5 dark:ring-white/10' 
               : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
@@ -658,13 +663,24 @@ export function AdminTab() {
         </button>
         <button
           onClick={() => setActiveTab('videos')}
-          className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${
+          className={`flex-1 min-w-[120px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all ${
             activeTab === 'videos' 
               ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md ring-1 ring-black/5 dark:ring-white/10' 
               : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
           }`}
         >
           📹 Vídeos Antigos
+        </button>
+        <button
+          onClick={() => setActiveTab('metrics')}
+          className={`flex-1 min-w-[140px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+            activeTab === 'metrics' 
+              ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-md ring-1 ring-black/5 dark:ring-white/10 font-bold' 
+              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5" />
+          <span>Monitoramento de APIs</span>
         </button>
       </div>
 
@@ -1500,6 +1516,12 @@ export function AdminTab() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {activeTab === 'metrics' && (
+        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <ApiMonitoringDashboard />
         </div>
       )}
 

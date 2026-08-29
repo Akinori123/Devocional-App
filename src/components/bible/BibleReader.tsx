@@ -25,9 +25,10 @@ import { cn } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
 import { useSettings } from '../../context/SettingsContext';
 import { db } from '../../lib/firebase';
-import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { useScrollDirection } from '../../hooks/useScrollDirection';
 import { useToast } from '../../context/ToastContext';
+import { recordApiUsage } from '../../services/apiMetricsService';
 
 interface BibleReaderProps {
   book: BibleBook;
@@ -535,7 +536,36 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
 
     setIsExplaining(true);
     try {
-      // AbortController to prevent infinite loading on slow/hanging networks (timeout after 35s)
+      // 1. OTIMIZAÇÃO DE CUSTOS: Consulta primeiro o Cache Global no Firestore
+      const cleanBookId = (book.id || book.name).toLowerCase().replace(/[^a-z0-9]/g, '');
+      const sortedVerseNumbers = selectedVersesList.map(v => v.verse);
+      const cacheDocId = `${cleanBookId}_c${chapter}_v${sortedVerseNumbers.join('-')}`;
+      const cacheRef = doc(db, 'bible_explanations', cacheDocId);
+
+      try {
+        const cachedSnap = await getDoc(cacheRef);
+        if (cachedSnap.exists()) {
+          const cachedData = cachedSnap.data();
+          if (cachedData && (cachedData.context || cachedData.meaning)) {
+            setExplanationResult({
+              reference: cachedData.reference || reference,
+              text: cachedData.text || text,
+              context: cachedData.context || '',
+              meaning: cachedData.meaning || '',
+              practicalApplication: cachedData.practicalApplication || '',
+              shortPrayer: cachedData.shortPrayer || ''
+            });
+            // Registra economia de cache no monitoramento
+            recordApiUsage('cache_hit');
+            setIsExplaining(false);
+            return;
+          }
+        }
+      } catch (cacheErr) {
+        console.warn('Cache lookup error, proceeding with API call:', cacheErr);
+      }
+
+      // 2. Se não existir no cache, chama a API do Gemini
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 35000);
 
@@ -544,7 +574,7 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
         text,
         bookName: book.name,
         chapter,
-        verseNumbers: selectedVersesList.map(v => v.verse)
+        verseNumbers: sortedVerseNumbers
       });
 
       let res: Response;
@@ -576,6 +606,18 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
         } catch {
           // not json
         }
+        
+        // 3. BLINDAGEM CONTRA RATE LIMIT (ERRO 429)
+        if (
+          res.status === 429 || 
+          errorMsg.includes('429') || 
+          errorMsg.includes('RESOURCE_EXHAUSTED') || 
+          errorMsg.includes('quota') ||
+          errorMsg.includes('Limite')
+        ) {
+          throw new Error('Nossos servidores estão muito cheios no momento (O Teólogo está descansando). Por favor, tente novamente em alguns minutos.');
+        }
+
         if (res.status === 404) {
           errorMsg = "Rota da API não encontrada (404). Verifique as variáveis de ambiente e o deploy na Vercel.";
         }
@@ -587,6 +629,7 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
         throw new Error('A resposta do Teólogo veio incompleta. Tente selecionar o versículo novamente.');
       }
 
+      // Salva no estado da UI
       setExplanationResult({
         reference,
         text,
@@ -595,9 +638,40 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
         practicalApplication: data.practicalApplication || '',
         shortPrayer: data.shortPrayer || ''
       });
+
+      // Salva no Firestore para que NENHUM outro usuário pague por este versículo novamente
+      try {
+        await setDoc(cacheRef, {
+          reference,
+          text,
+          bookId: book.id,
+          bookName: book.name,
+          chapter,
+          verseNumbers: sortedVerseNumbers,
+          context: data.context || '',
+          meaning: data.meaning || '',
+          practicalApplication: data.practicalApplication || '',
+          shortPrayer: data.shortPrayer || '',
+          createdAt: new Date().toISOString(),
+          cachedBy: user?.uid || 'anonymous'
+        });
+      } catch (saveCacheErr) {
+        console.warn('Erro ao salvar explicação no cache do Firestore:', saveCacheErr);
+      }
+
+      // Registra consumo da API do Gemini
+      recordApiUsage('gemini');
     } catch (err: any) {
       console.error("AI Explanation error:", err);
-      toast.error(err.message || 'Não foi possível consultar o Teólogo. Tente novamente.');
+      let displayMessage = err.message || 'Não foi possível consultar o Teólogo. Tente novamente.';
+      if (
+        displayMessage.includes('429') || 
+        displayMessage.includes('RESOURCE_EXHAUSTED') || 
+        displayMessage.includes('quota')
+      ) {
+        displayMessage = 'Nossos servidores estão muito cheios no momento (O Teólogo está descansando). Por favor, tente novamente em alguns minutos.';
+      }
+      toast.error(displayMessage);
     } finally {
       setIsExplaining(false);
     }

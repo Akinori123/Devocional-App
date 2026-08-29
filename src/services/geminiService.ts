@@ -1,4 +1,5 @@
 import { DevotionalItem } from '../data/devotionals';
+import { recordApiUsage } from './apiMetricsService';
 
 export async function generateDevotional(
   theme: string, 
@@ -52,6 +53,16 @@ export async function generateDevotional(
       // response is not JSON
     }
 
+    if (
+      response.status === 429 || 
+      errorMsg.includes('429') || 
+      errorMsg.includes('RESOURCE_EXHAUSTED') || 
+      errorMsg.includes('quota') ||
+      errorMsg.includes('Limite')
+    ) {
+      throw new Error("Nossos servidores estão muito cheios no momento (O Teólogo está descansando). Por favor, tente novamente em alguns minutos.");
+    }
+
     if (response.status === 403) {
       throw new Error(errorMsg || 'Recurso Premium.');
     }
@@ -66,6 +77,9 @@ export async function generateDevotional(
   if (!data?.title || !data?.content) {
     throw new Error("A IA gerou uma resposta incompleta. Tente novamente com outro tema.");
   }
+
+  // Registra consumo da API Gemini
+  recordApiUsage('gemini');
 
   return {
     id: `ai-${Date.now()}`,

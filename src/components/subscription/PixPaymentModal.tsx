@@ -166,7 +166,7 @@ export function PixPaymentModal({
               <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-2xl p-3.5 mb-4 text-xs">
                 <div className="flex justify-between items-center mb-1.5">
                   <span className="text-gray-300">Valor único:</span>
-                  <span className="text-base font-black text-emerald-400">R$ {pixData?.amount?.toFixed(2) || "1,00"}</span>
+                  <span className="text-base font-black text-emerald-400">R$ {pixData?.amount ? pixData.amount.toFixed(2).replace('.', ',') : "29,90"}</span>
                 </div>
                 <div className="flex items-start gap-1.5 text-emerald-200/80 text-[11px] leading-relaxed">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />

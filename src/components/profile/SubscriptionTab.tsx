@@ -147,7 +147,7 @@ export function SubscriptionTab() {
           userId: user.uid, 
           userEmail: user.email,
           userName: profile?.name || user.displayName,
-          amount: 1.00
+          amount: 29.90
         })
       });
       if (!response.ok) {
@@ -503,7 +503,7 @@ export function SubscriptionTab() {
 
                 <div className="my-3 pt-2 border-t border-emerald-500/20">
                   <div className="flex items-baseline gap-1">
-                    <span className="text-2xl sm:text-3xl font-black text-white">R$ 1,00</span>
+                    <span className="text-2xl sm:text-3xl font-black text-white">R$ 29,90</span>
                     <span className="text-xs text-gray-400 font-medium">/ 30 dias de acesso</span>
                   </div>
                   <p className="text-xs text-gray-300 mt-1.5 leading-relaxed">
@@ -523,7 +523,7 @@ export function SubscriptionTab() {
                 ) : (
                   <>
                     <QrCode className="w-4 h-4" />
-                    <span>Pagar com PIX (R$ 1,00)</span>
+                    <span>Pagar com PIX (R$ 29,90)</span>
                   </>
                 )}
               </button>
@@ -552,7 +552,7 @@ export function SubscriptionTab() {
 
                 <div className="my-3 pt-2 border-t border-yellow-500/20">
                   <div className="flex items-baseline gap-1">
-                    <span className="text-2xl sm:text-3xl font-black text-white">R$ 1,00</span>
+                    <span className="text-2xl sm:text-3xl font-black text-white">R$ 29,90</span>
                     <span className="text-xs text-gray-400 font-medium">/ mês no cartão</span>
                   </div>
                   <p className="text-xs text-gray-300 mt-1.5 leading-relaxed">
@@ -572,7 +572,7 @@ export function SubscriptionTab() {
                 ) : (
                   <>
                     <CreditCard className="w-4 h-4" />
-                    <span>Assinar no Cartão (R$ 1,00)</span>
+                    <span>Assinar no Cartão (R$ 29,90)</span>
                   </>
                 )}
               </button>

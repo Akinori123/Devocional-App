@@ -13,6 +13,7 @@ import { format } from 'date-fns';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useToast } from '../../context/ToastContext';
+import { recordApiUsage } from '../../services/apiMetricsService';
 
 interface DevotionalReaderProps {
   devotional: DevotionalItem;
@@ -254,9 +255,32 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: promptToUse })
       });
-      if (!response.ok) throw new Error("Falha ao gerar");
+      
+      if (!response.ok) {
+        let errText = "Falha ao gerar";
+        try {
+          const errJson = await response.json();
+          if (errJson?.error) errText = errJson.error;
+        } catch {}
+        
+        if (
+          response.status === 429 || 
+          errText.includes('429') || 
+          errText.includes('RESOURCE_EXHAUSTED') || 
+          errText.includes('quota') ||
+          errText.includes('Limite')
+        ) {
+          throw new Error("Nossos servidores estão muito cheios no momento (O Teólogo está descansando). Por favor, tente novamente em alguns minutos.");
+        }
+        throw new Error(errText);
+      }
+      
       const data = await response.json();
       setGeneratedBg(data.image);
+
+      // Registra consumo das APIs
+      recordApiUsage('unsplash');
+      recordApiUsage('gemini');
 
       if (user) {
         const userRef = doc(db, 'users', user.uid);
@@ -270,7 +294,15 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
         }
       }
     } catch (error: any) {
-      toast.error("Não foi possível carregar a imagem da IA. Aplicando fundo padrão.");
+      let msg = error?.message || "Não foi possível carregar a imagem da IA. Aplicando fundo padrão.";
+      if (
+        msg.includes('429') || 
+        msg.includes('RESOURCE_EXHAUSTED') || 
+        msg.includes('quota')
+      ) {
+        msg = "Nossos servidores estão muito cheios no momento (O Teólogo está descansando). Por favor, tente novamente em alguns minutos.";
+      }
+      toast.error(msg);
       console.error(error);
       setUseFallbackBg(true);
     } finally {
@@ -850,7 +882,7 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
             </p>
 
             <div className="w-full bg-yellow-50/80 dark:bg-yellow-950/30 rounded-xl p-3.5 border border-yellow-100 dark:border-yellow-900/50 mb-5">
-              <div className="text-2xl font-black text-gray-900 dark:text-white mb-0.5">R$ 1,00 <span className="text-xs font-normal text-gray-500 dark:text-gray-400">/ mês</span></div>
+              <div className="text-2xl font-black text-gray-900 dark:text-white mb-0.5">R$ 29,90 <span className="text-xs font-normal text-gray-500 dark:text-gray-400">/ mês</span></div>
               <p className="text-xs text-gray-500 dark:text-gray-400">Acesso a 10 gerações diárias e todo conteúdo exclusivo.</p>
             </div>
 
@@ -895,7 +927,7 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
               </p>
               
               <div className="w-full bg-gray-50 dark:bg-slate-800 rounded-xl p-4 border border-gray-100 dark:border-slate-700 mb-6">
-                <div className="text-2xl font-black text-gray-900 dark:text-white mb-1">R$ 1,00 <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/ mês</span></div>
+                <div className="text-2xl font-black text-gray-900 dark:text-white mb-1">R$ 29,90 <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/ mês</span></div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Cancele quando quiser, direto pelo aplicativo.</p>
               </div>
 

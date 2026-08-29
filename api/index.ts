@@ -56,7 +56,7 @@ const handleCheckoutSubscription = async (req: express.Request, res: express.Res
         auto_recurring: {
           frequency: 1,
           frequency_type: "months",
-          transaction_amount: 1.00, // Preço promocional/teste: R$ 1,00/mês
+          transaction_amount: 29.90, // Assinatura Recorrente Mensal: R$ 29,90/mês
           currency_id: "BRL"
         },
         payer_email: userEmail || "test@test.com",
@@ -76,7 +76,7 @@ const handleCheckoutSubscription = async (req: express.Request, res: express.Res
 // Gerar Pagamento PIX Avulso de 30 Dias (Passe VIP)
 const handleCreatePixPayment = async (req: express.Request, res: express.Response) => {
   try {
-    const { userId, userEmail, userName, amount = 1.00 } = req.body;
+    const { userId, userEmail, userName, amount = 29.90 } = req.body;
     
     if (!userId) {
       return res.status(400).json({ error: "UserId is required" });
@@ -97,7 +97,7 @@ const handleCreatePixPayment = async (req: express.Request, res: express.Respons
 
     const result = await payment.create({
       body: {
-        transaction_amount: Number(amount) || 1.00,
+        transaction_amount: Number(amount) || 29.90,
         description: "Passe VIP Florescer - 30 Dias (PIX)",
         payment_method_id: "pix",
         payer: {
@@ -486,7 +486,7 @@ app.post("/api/payment/create", async (req, res) => {
             id: planId || "premium_plan",
             title: title || "Plano Premium",
             quantity: quantity || 1,
-            unit_price: price || 1.00,
+            unit_price: price || 29.90,
             currency_id: "BRL",
           }
         ],

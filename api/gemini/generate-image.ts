@@ -59,15 +59,28 @@ export default async function handler(req: Request, res: Response) {
     let unsplashUrl = `https://api.unsplash.com/photos/random?query=${encodeURIComponent(keywords)}&orientation=portrait&client_id=${unsplashApiKey}`;
     let unsplashRes = await fetch(unsplashUrl);
     if (!unsplashRes.ok) {
+       if (unsplashRes.status === 429) {
+         return res.status(429).json({ 
+           error: "Nossos servidores de imagem estão muito cheios no momento. Por favor, tente novamente em alguns minutos." 
+         });
+       }
        unsplashUrl = `https://api.unsplash.com/photos/random?query=nature,landscape,peaceful&orientation=portrait&client_id=${unsplashApiKey}`;
        unsplashRes = await fetch(unsplashUrl);
        if (!unsplashRes.ok) {
+           if (unsplashRes.status === 429) {
+             return res.status(429).json({ 
+               error: "Nossos servidores de imagem estão muito cheios no momento. Por favor, tente novamente em alguns minutos." 
+             });
+           }
            throw new Error(`Erro na API do Unsplash: ${unsplashRes.statusText}`);
        }
     }
 
     const unsplashData = await unsplashRes.json();
-    const photoUrl = unsplashData.urls.regular;
+    const photoUrl = unsplashData.urls?.regular || unsplashData.urls?.small;
+    if (!photoUrl) {
+      throw new Error("Formato de imagem não reconhecido do Unsplash.");
+    }
     const photoResponse = await fetch(photoUrl);
     const arrayBuffer = await photoResponse.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
@@ -76,6 +89,12 @@ export default async function handler(req: Request, res: Response) {
     return res.status(200).json({ image: `data:${mimeType};base64,${base64}` });
   } catch (error: any) {
     console.error("Error generating image:", error);
-    return res.status(500).json({ error: error.message || "Failed to generate image" });
+    let msg = error?.message || "Failed to generate image";
+    if (msg.includes("429") || msg.includes("Rate Limit")) {
+      return res.status(429).json({ 
+        error: "Nossos servidores de imagem estão muito cheios no momento. Por favor, tente novamente em alguns minutos." 
+      });
+    }
+    return res.status(500).json({ error: msg });
   }
 }
