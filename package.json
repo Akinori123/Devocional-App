@@ -23,7 +23,7 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "firebase": "^12.16.0",
-    "firebase-admin": "^14.2.0",
+    "firebase-admin": "^12.7.0",
     "fuse.js": "^7.5.0",
     "html-to-image": "^1.11.13",
     "lucide-react": "^0.546.0",
@@ -34,6 +34,14 @@
     "react-dom": "^19.0.1",
     "react-joyride": "^3.2.0",
     "tailwind-merge": "^3.6.0"
+  },
+  "overrides": {
+    "jose": "4.15.9",
+    "jwks-rsa": "^3.1.0"
+  },
+  "resolutions": {
+    "jose": "4.15.9",
+    "jwks-rsa": "^3.1.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.14",
