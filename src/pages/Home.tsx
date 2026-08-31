@@ -65,6 +65,7 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!carouselRef.current) return;
+    if (e.pointerType !== 'mouse') return; // Do not intercept touch interactions on mobile/touch screens
     isPointerDownRef.current = true;
     isDraggingRef.current = false;
     startXRef.current = e.clientX;
@@ -517,8 +518,7 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
         {/* Current Devotional (Carousel & Individual Progress) */}
         <section id="tour-devocional-section">
           <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-yellow-500" />
+            <div className="flex items-center">
               <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                 📖 Devocionais {activeThemeName ? `• ${activeThemeName}` : ''}
               </h2>
@@ -585,12 +585,7 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerCancel={handlePointerUp}
-                onWheel={(e) => {
-                  if (carouselRef.current && e.deltaY !== 0) {
-                    carouselRef.current.scrollLeft += e.deltaY;
-                  }
-                }}
-                className="flex gap-4 overflow-x-auto scrollbar-hide no-scrollbar pb-4 -mx-5 px-5 snap-x cursor-grab active:cursor-grabbing relative z-0 scroll-smooth select-none touch-pan-x"
+                className="flex gap-4 overflow-x-auto scrollbar-hide no-scrollbar pb-4 -mx-5 px-5 snap-x cursor-grab active:cursor-grabbing relative z-0 scroll-smooth select-none"
               >
                 {carouselItems.map((devotional, index) => {
                   const isCurrent = index === 0;
