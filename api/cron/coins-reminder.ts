@@ -221,10 +221,21 @@ export default async function handler(req: Request, res: Response) {
     let failureCount = 0;
     const deadTokensToClean: string[] = [];
 
-    const pushPayload = {
+    const pushPayload: any = {
       notification: {
         title: "🪙 Suas moedas estão esperando!",
         body: "Tire 15 minutinhos hoje para sua leitura devocional e garanta sua recompensa.",
+      },
+      android: {
+        priority: 'high',
+        notification: {
+          title: "🪙 Suas moedas estão esperando!",
+          body: "Tire 15 minutinhos hoje para sua leitura devocional e garanta sua recompensa.",
+          sound: 'default',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          channelId: 'coins_reminders'
+        }
       },
       webpush: {
         headers: {
@@ -258,6 +269,7 @@ export default async function handler(req: Request, res: Response) {
       const response = await messaging.sendEachForMulticast({
         tokens: chunk,
         notification: pushPayload.notification,
+        android: pushPayload.android,
         webpush: pushPayload.webpush,
         data: pushPayload.data
       });

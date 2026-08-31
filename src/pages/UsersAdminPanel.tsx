@@ -28,13 +28,15 @@ import {
   Coins,
   Plus,
   Minus,
-  Shield,
-  ShieldCheck,
-  BellRing
+  Shield, 
+  ShieldCheck, 
+  BellRing,
+  Smartphone
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { AdminTab } from '../components/profile/AdminTab';
+import { registerDeviceFcmToken } from '../services/fcmRegistration';
 
 interface UsersAdminPanelProps {
   onChangeTab: (tab: TabType) => void;
@@ -59,7 +61,37 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
   const [currentView, setCurrentView] = useState<'active' | 'trash'>('active');
   const [mainTab, setMainTab] = useState<'users' | 'content'>('users');
   const [testingSaleAlert, setTestingSaleAlert] = useState(false);
+  const [syncingPushDevice, setSyncingPushDevice] = useState(false);
   const toast = useToast();
+
+  const handleSyncCurrentDevicePush = async () => {
+    if (!user?.uid) {
+      toast.error('Usuário não autenticado.');
+      return;
+    }
+    setSyncingPushDevice(true);
+    try {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted') {
+        const perm = await Notification.requestPermission();
+        if (perm !== 'granted') {
+          toast.error('Permissão de notificação negada no navegador/celular.');
+          return;
+        }
+      }
+      const res = await registerDeviceFcmToken(user.uid);
+      if (res.success) {
+        toast.success('Dispositivo sincronizado! Token salvo no Firestore.');
+        await loadUsers();
+      } else {
+        toast.error(`Falha ao registrar token: ${res.error || 'Desconhecido'}`);
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Erro: ${err?.message || 'Falha ao sincronizar'}`);
+    } finally {
+      setSyncingPushDevice(false);
+    }
+  };
 
   const handleTestSaleAlert = async () => {
     setTestingSaleAlert(true);
@@ -77,7 +109,11 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
       });
       const data = await res.json();
       if (data.success) {
-        toast.success(`Alerta Hotmart disparado! Push: ${data.result?.pushSent ? 'Enviado ✅' : 'Registrado'} | E-mail: ${data.result?.emailSent ? 'Enviado ✅' : 'Salvo no Log'}`);
+        const pushStatus = data.result?.pushSent 
+          ? `Push Enviado (${data.result?.recipientsCount || 1} dispositivo(s)) ✅` 
+          : '⚠️ Push: Nenhum token de admin ativo (clique em Sincronizar Aparelho)';
+        const emailStatus = data.result?.emailSent ? 'E-mail Enviado ✅' : 'E-mail registrado';
+        toast.success(`Alerta Hotmart disparado! ${pushStatus} | ${emailStatus}`);
       } else {
         toast.error('Erro ao disparar teste de alerta.');
       }
@@ -431,24 +467,39 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
           </div>
         </div>
 
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3.5 rounded-xl text-red-800 dark:text-red-200 text-xs sm:text-sm mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3.5 rounded-xl text-red-800 dark:text-red-200 text-xs sm:text-sm mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
             <p className="font-bold mb-0.5">Painel Restrito & Alertas de Venda</p>
             <p>Controle de usuários, conteúdo e disparo de notificações automáticas via webhook.</p>
           </div>
-          <button
-            onClick={handleTestSaleAlert}
-            disabled={testingSaleAlert}
-            className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 text-xs font-bold shadow-xs transition-all shrink-0 cursor-pointer disabled:opacity-50"
-            title="Disparar teste de Push Notification estilo Hotmart e E-mail de Nova Venda"
-          >
-            {testingSaleAlert ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <BellRing className="w-3.5 h-3.5" />
-            )}
-            Testar Alerta de Venda (Push + E-mail)
-          </button>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              onClick={handleSyncCurrentDevicePush}
+              disabled={syncingPushDevice}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-800 dark:text-gray-100 border border-gray-300 dark:border-slate-700 text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+              title="Garantir que o token Push deste celular/navegador está salvo no Firestore"
+            >
+              {syncingPushDevice ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Smartphone className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              )}
+              Sincronizar Push deste Aparelho
+            </button>
+            <button
+              onClick={handleTestSaleAlert}
+              disabled={testingSaleAlert}
+              className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+              title="Disparar teste de Push Notification estilo Hotmart e E-mail de Nova Venda"
+            >
+              {testingSaleAlert ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <BellRing className="w-3.5 h-3.5" />
+              )}
+              Testar Alerta de Venda (Push + E-mail)
+            </button>
+          </div>
         </div>
 
         <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-xl shadow-inner">

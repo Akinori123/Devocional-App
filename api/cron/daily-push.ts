@@ -257,10 +257,21 @@ export default async function handler(req: Request, res: Response) {
 
     // 5. Envio das Mensagens Padrão (Devocional Matinal)
     if (standardTokensList.length > 0) {
-      const standardPayload = {
+      const standardPayload: any = {
         notification: {
           title: "Bom dia! ☀️",
           body: `"${wordOfTheDay}"... Volte ao app para continuar sua leitura na Bíblia ou na sua Jornada. Não desista do seu propósito!`,
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            title: "Bom dia! ☀️",
+            body: `"${wordOfTheDay}"... Volte ao app para continuar sua leitura na Bíblia ou na sua Jornada. Não desista do seu propósito!`,
+            sound: 'default',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            channelId: 'daily_reminders'
+          }
         },
         webpush: {
           headers: {
@@ -292,6 +303,7 @@ export default async function handler(req: Request, res: Response) {
         const response = await messaging.sendEachForMulticast({
           tokens: chunk,
           notification: standardPayload.notification,
+          android: standardPayload.android,
           webpush: standardPayload.webpush,
           data: standardPayload.data
         });

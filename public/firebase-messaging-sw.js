@@ -1,6 +1,14 @@
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging-compat.js');
 
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 firebase.initializeApp({
   apiKey: "AIzaSyBInDV-wE6kcOC6ggFBy8xyjNc31HLuD7w",
   authDomain: "devocional-app-63871.firebaseapp.com",
@@ -33,7 +41,7 @@ messaging.onBackgroundMessage((payload) => {
       requireInteraction: isSaleAlert ? true : false,
       vibrate: isSaleAlert ? [300, 100, 300, 100, 400] : [200, 100, 200],
       data: {
-        url: payload.data?.url || payload.fcmOptions?.link || (isSaleAlert ? '/?tab=admin_users' : '/')
+        url: payload.data?.url || payload.fcmOptions?.link || (isSaleAlert ? '/?tab=usersAdmin' : '/')
       }
     };
 

@@ -19,6 +19,7 @@ import { DevotionalProvider, useDevotionals } from './context/DevotionalContext'
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { useActiveSessionTracker } from './hooks/useActiveSessionTracker';
+import { registerDeviceFcmToken } from './services/fcmRegistration';
 import { Loader2, Trash2 } from 'lucide-react';
 
 function AppContent() {
@@ -30,6 +31,16 @@ function AppContent() {
   const { user, profile, loading, logout } = useAuth();
   const { allDevotionals, setActiveDevotional } = useDevotionals();
   const handledDeepLinkRef = useRef(false);
+
+  // Auto-sync Push FCM Token on app boot if permission is granted
+  useEffect(() => {
+    if (!user?.uid) return;
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      registerDeviceFcmToken(user.uid).catch((err) => {
+        console.debug('FCM auto-sync in background:', err);
+      });
+    }
+  }, [user?.uid]);
 
   const handleTabChange = useCallback((tab: TabType, subTab?: 'diary' | 'verses' | 'videos' | 'subscription' | 'settings' | 'admin') => {
     if (tab === 'profile') {

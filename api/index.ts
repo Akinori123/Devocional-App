@@ -203,6 +203,12 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
 
   const tokensList = Array.from(adminFcmTokens);
   let pushSent = false;
+  const fcmDetails: any = {
+    tokensFound: tokensList.length,
+    successCount: 0,
+    failureCount: 0,
+    responses: [] as any[]
+  };
 
   if (tokensList.length > 0) {
     try {
@@ -210,10 +216,29 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
       const pushTitle = `🎉 Nova Venda! Assinatura confirmada no valor de ${amountFormatted}`;
       const pushBody = `Cliente: ${customerDisplayName} (${customerEmail || 'E-mail não informado'})\nPlano: ${planName} | Método: ${paymentMethodLabel}`;
 
-      const pushPayload = {
+      console.log(`[Admin Sale Alert] Target admin tokens found: ${tokensList.length} device(s). Admin Emails: ${Array.from(adminEmailsSet).join(', ')}`);
+      tokensList.forEach((tok, idx) => {
+        console.log(`[Admin Sale Alert] Device [${idx + 1}/${tokensList.length}] token prefix: ${tok.substring(0, 16)}...${tok.substring(tok.length - 8)}`);
+      });
+
+      const pushPayload: any = {
+        tokens: tokensList,
         notification: {
           title: pushTitle,
           body: pushBody,
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            title: pushTitle,
+            body: pushBody,
+            sound: 'default',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            channelId: 'sales_alerts',
+            tag: `admin-sale-${transactionId}`,
+            clickAction: '/?tab=admin_users'
+          }
         },
         webpush: {
           headers: {
@@ -254,22 +279,33 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
         }
       };
 
-      const response = await messaging.sendEachForMulticast({
-        tokens: tokensList,
-        notification: pushPayload.notification,
-        webpush: pushPayload.webpush,
-        data: pushPayload.data
+      console.log(`[Admin Sale Alert] Calling Firebase messaging.sendEachForMulticast()...`);
+      const response = await messaging.sendEachForMulticast(pushPayload);
+
+      fcmDetails.successCount = response.successCount;
+      fcmDetails.failureCount = response.failureCount;
+
+      console.log(`[Admin Sale Alert] Push response summary: ${response.successCount} succeeded, ${response.failureCount} failed out of ${tokensList.length} devices.`);
+      
+      response.responses.forEach((resp, idx) => {
+        if (resp.success) {
+          console.log(`[Admin Sale Alert] ✅ Device [${idx + 1}] push accepted (messageId: ${resp.messageId})`);
+          fcmDetails.responses.push({ index: idx + 1, status: 'success', messageId: resp.messageId });
+        } else {
+          console.error(`[Admin Sale Alert] ❌ Device [${idx + 1}] push failed: code=${resp.error?.code}, msg=${resp.error?.message}`);
+          fcmDetails.responses.push({ index: idx + 1, status: 'failed', errorCode: resp.error?.code, errorMessage: resp.error?.message });
+        }
       });
 
-      console.log(`[Admin Sale Alert] Push sent: ${response.successCount} succeeded, ${response.failureCount} failed out of ${tokensList.length} admin devices.`);
       if (response.successCount > 0) {
         pushSent = true;
       }
     } catch (pushErr) {
-      console.error('[Admin Sale Alert] Error sending FCM push notification:', pushErr);
+      console.error('[Admin Sale Alert] Fatal error sending FCM push notification:', pushErr);
+      fcmDetails.error = String(pushErr);
     }
   } else {
-    console.warn('[Admin Sale Alert] No active admin FCM tokens found in database to send push.');
+    console.warn('[Admin Sale Alert] ⚠️ No active admin FCM tokens found in database to send push! Ensure admin opened the app and granted notification permission.');
   }
 
   let emailSent = false;
@@ -619,6 +655,76 @@ async function activateUserPremium({
 
     await targetRef.update(updatePayload);
     console.log(`[Activate Premium] SUCCESS: Forced isPremium=true, subscriptionStatus='active', expiresAt=${newExpiresAt} for user ${targetRef.id}`);
+
+    // Disparar Push Notification de Boas-Vindas VIP diretamente no celular do cliente
+    try {
+      const customerTokens = new Set<string>();
+      if (typeof userData?.fcmToken === 'string' && userData.fcmToken.trim().length > 10) {
+        customerTokens.add(userData.fcmToken.trim());
+      }
+      if (Array.isArray(userData?.fcmTokens)) {
+        userData.fcmTokens.forEach((t: any) => {
+          if (typeof t === 'string' && t.trim().length > 10) customerTokens.add(t.trim());
+        });
+      }
+
+      const clientTokensList = Array.from(customerTokens);
+      if (clientTokensList.length > 0 && getApps().length) {
+        const messaging = getMessaging();
+        const welcomeTitle = "🎉 Parabéns! Seu Plano VIP está ativo!";
+        const welcomeBody = "Seu acesso completo ao Florescer VIP foi liberado. Aproveite o Teólogo IA, jornadas bíblicas e áudios exclusivos!";
+
+        await messaging.sendEachForMulticast({
+          tokens: clientTokensList,
+          notification: {
+            title: welcomeTitle,
+            body: welcomeBody
+          },
+          android: {
+            priority: 'high',
+            notification: {
+              title: welcomeTitle,
+              body: welcomeBody,
+              sound: 'default',
+              defaultSound: true,
+              defaultVibrateTimings: true,
+              channelId: 'vip_welcome'
+            }
+          },
+          webpush: {
+            headers: {
+              Urgency: "high",
+              Topic: "vip-welcome"
+            },
+            notification: {
+              title: welcomeTitle,
+              body: welcomeBody,
+              icon: "/images/rosa.png",
+              badge: "/images/rosa.png",
+              tag: `vip-activated-${targetRef.id}`,
+              renotify: true,
+              requireInteraction: true,
+              data: {
+                url: "/"
+              }
+            },
+            fcmOptions: {
+              link: "/"
+            }
+          },
+          data: {
+            type: "vip_activated",
+            title: welcomeTitle,
+            body: welcomeBody,
+            url: "/"
+          }
+        });
+        console.log(`[Activate Premium] ✅ Dispatched VIP welcome push to ${clientTokensList.length} device(s) for user ${targetRef.id}`);
+      }
+    } catch (pushCustomerErr) {
+      console.warn(`[Activate Premium] Note: Could not send VIP welcome push to user ${targetRef.id}:`, pushCustomerErr);
+    }
+
     return true;
   } catch (err) {
     console.error("[Activate Premium] Error activating user premium:", err);
