@@ -289,6 +289,10 @@ export default async function handler(req: Request, res: Response) {
           }
         },
         data: {
+          title: "Bom dia! ☀️",
+          body: `"${wordOfTheDay}"... Volte ao app para continuar sua leitura na Bíblia ou na sua Jornada. Não desista do seu propósito!`,
+          icon: "/images/rosa.png",
+          badge: "/images/rosa.png",
           tag: `daily-push-${todayBrasilia}`,
           url: "/"
         }
@@ -362,6 +366,10 @@ export default async function handler(req: Request, res: Response) {
               }
             },
             data: {
+              title: item.title,
+              body: item.body,
+              icon: "/images/rosa.png",
+              badge: "/images/rosa.png",
               tag: `subscription-dunning-${todayBrasilia}`,
               url: "/?tab=profile"
             }

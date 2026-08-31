@@ -21,32 +21,60 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-messaging.onBackgroundMessage((payload) => {
-  console.log('[firebase-messaging-sw.js] Received background message ', payload);
+// Explicit raw 'push' event listener to guarantee 100% notification display on Android PWA & Chrome background
+self.addEventListener('push', (event) => {
+  console.log('[firebase-messaging-sw.js] Raw Push event received:', event);
 
-  // When Firebase send payload contains a 'notification' object, 
-  // the browser WebPush handler natively displays it automatically.
-  // We only manually call showNotification if this was a data-only push payload,
-  // preventing duplicate notifications on Android/iOS/Desktop.
-  if (!payload.notification) {
-    const isSaleAlert = payload.data?.type === 'admin_sale_alert';
-    const notificationTitle = payload.data?.title || (isSaleAlert ? '🎉 Nova Venda Realizada!' : 'Florescer Devocional');
-    const notificationOptions = {
-      body: payload.data?.body || 'Um novo versículo e reflexão esperam por você hoje.',
-      icon: payload.data?.icon || (isSaleAlert ? '/images/logo.png' : '/images/rosa.png'),
-      badge: payload.data?.badge || (isSaleAlert ? '/images/logo.png' : '/images/rosa.png'),
-      image: payload.data?.image || undefined,
-      tag: payload.data?.tag || (isSaleAlert ? `admin-sale-${Date.now()}` : 'florescer-daily-push'),
-      renotify: isSaleAlert ? true : false,
-      requireInteraction: isSaleAlert ? true : false,
-      vibrate: isSaleAlert ? [300, 100, 300, 100, 400] : [200, 100, 200],
-      data: {
-        url: payload.data?.url || payload.fcmOptions?.link || (isSaleAlert ? '/?tab=usersAdmin' : '/')
-      }
-    };
-
-    self.registration.showNotification(notificationTitle, notificationOptions);
+  let payload = {};
+  try {
+    if (event.data) {
+      payload = event.data.json();
+    }
+  } catch (err) {
+    try {
+      payload = { data: { body: event.data.text() } };
+    } catch (_) {}
   }
+
+  console.log('[firebase-messaging-sw.js] Parsed push payload:', payload);
+
+  const notif = payload.notification || {};
+  const data = payload.data || {};
+  const isSaleAlert = data.type === 'admin_sale_alert' || notif.title?.includes('Venda') || data.title?.includes('Venda');
+
+  const title = data.title || notif.title || (isSaleAlert ? '🎉 Nova Venda Realizada!' : 'Florescer Devocional');
+  const body = data.body || notif.body || 'Você tem uma nova notificação do Florescer.';
+  const icon = data.icon || notif.icon || (isSaleAlert ? '/images/logo.png' : '/images/rosa.png');
+  const badge = data.badge || notif.badge || (isSaleAlert ? '/images/logo.png' : '/images/rosa.png');
+  const image = data.image || notif.image || undefined;
+  const targetUrl = data.url || notif.click_action || payload.fcmOptions?.link || (isSaleAlert ? '/?tab=admin_users' : '/');
+
+  const options = {
+    body: body,
+    icon: icon,
+    badge: badge,
+    image: image,
+    tag: data.tag || notif.tag || (isSaleAlert ? `sale-${Date.now()}` : 'florescer-push'),
+    renotify: true,
+    requireInteraction: true,
+    vibrate: isSaleAlert ? [400, 150, 400, 150, 500] : [200, 100, 200],
+    data: {
+      url: targetUrl,
+      ...data
+    },
+    actions: isSaleAlert ? [
+      { action: 'open_admin', title: 'Ver Painel Admin' }
+    ] : []
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+  );
+});
+
+// Complementary Firebase onBackgroundMessage handler
+messaging.onBackgroundMessage((payload) => {
+  console.log('[firebase-messaging-sw.js] onBackgroundMessage received:', payload);
 });
 
 self.addEventListener('notificationclick', (event) => {

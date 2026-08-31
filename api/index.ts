@@ -119,6 +119,7 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
   pushSent: boolean;
   emailSent: boolean;
   recipientsCount: number;
+  fcmDetails?: any;
   message?: string;
 }> {
   const {
@@ -478,6 +479,7 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
     pushSent,
     emailSent,
     recipientsCount: tokensList.length,
+    fcmDetails,
     message: 'Sale alert processed'
   };
 }
