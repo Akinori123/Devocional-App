@@ -29,7 +29,8 @@ import {
   Plus,
   Minus,
   Shield,
-  ShieldCheck
+  ShieldCheck,
+  BellRing
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
@@ -57,7 +58,36 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
   const [savingCoins, setSavingCoins] = useState(false);
   const [currentView, setCurrentView] = useState<'active' | 'trash'>('active');
   const [mainTab, setMainTab] = useState<'users' | 'content'>('users');
+  const [testingSaleAlert, setTestingSaleAlert] = useState(false);
   const toast = useToast();
+
+  const handleTestSaleAlert = async () => {
+    setTestingSaleAlert(true);
+    try {
+      const res = await fetch('/api/admin/test-sale-alert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: 29.90,
+          planName: "Assinatura VIP Florescer (Teste)",
+          customerName: user?.displayName || "Assinante Exemplo",
+          customerEmail: user?.email || "dofekrafael@gmail.com",
+          paymentMethod: "PIX"
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Alerta Hotmart disparado! Push: ${data.result?.pushSent ? 'Enviado ✅' : 'Registrado'} | E-mail: ${data.result?.emailSent ? 'Enviado ✅' : 'Salvo no Log'}`);
+      } else {
+        toast.error('Erro ao disparar teste de alerta.');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Falha de conexão com a API de alerta.');
+    } finally {
+      setTestingSaleAlert(false);
+    }
+  };
 
   useEffect(() => {
     if (!isAdmin) {
@@ -401,9 +431,24 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
           </div>
         </div>
 
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 rounded-xl text-red-800 dark:text-red-200 text-xs sm:text-sm mb-4">
-          <p className="font-bold mb-0.5">Painel Restrito</p>
-          <p>Apenas criadores têm acesso a esta área. Aqui você controla todo o aplicativo.</p>
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3.5 rounded-xl text-red-800 dark:text-red-200 text-xs sm:text-sm mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <p className="font-bold mb-0.5">Painel Restrito & Alertas de Venda</p>
+            <p>Controle de usuários, conteúdo e disparo de notificações automáticas via webhook.</p>
+          </div>
+          <button
+            onClick={handleTestSaleAlert}
+            disabled={testingSaleAlert}
+            className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 text-xs font-bold shadow-xs transition-all shrink-0 cursor-pointer disabled:opacity-50"
+            title="Disparar teste de Push Notification estilo Hotmart e E-mail de Nova Venda"
+          >
+            {testingSaleAlert ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <BellRing className="w-3.5 h-3.5" />
+            )}
+            Testar Alerta de Venda (Push + E-mail)
+          </button>
         </div>
 
         <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-xl shadow-inner">

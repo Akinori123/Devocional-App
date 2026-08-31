@@ -10,6 +10,7 @@ import { getMessaging } from 'firebase-admin/messaging';
 import { MercadoPagoConfig, Preference, PreApproval, Payment } from 'mercadopago';
 import dailyPushHandler from './cron/daily-push';
 import coinsReminderHandler from './cron/coins-reminder';
+import { notifyAdminSaleApproved } from './services/adminNotificationService';
 
 dotenv.config();
 
@@ -263,13 +264,32 @@ const handleCheckPaymentStatus = async (req: express.Request, res: express.Respo
     if (paymentData.status === 'approved') {
       const userId = (paymentData.metadata as any)?.user_id || paymentData.external_reference || (paymentData.payer as any)?.email;
       if (userId) {
+        const meta = (paymentData.metadata as any) || {};
+        const payer = (paymentData.payer as any) || {};
+        const planId = meta.plan_id || 'pix_30_days';
+        const planName = planId === 'pix_30_days' ? 'Passe VIP 30 Dias (PIX)' : 'Plano VIP Florescer';
+        const customerName = payer.first_name ? `${payer.first_name} ${payer.last_name || ''}`.trim() : undefined;
+        const customerEmail = payer.email;
+
         await activateUserPremium({
           userId,
           paymentId: String(paymentId),
           type: 'pix_prepaid',
-          planId: (paymentData.metadata as any)?.plan_id || 'pix_30_days',
+          planId,
           durationDays: 30
         });
+
+        // Notificar Administrador em tempo real (Push Hotmart + E-mail)
+        notifyAdminSaleApproved({
+          transactionId: String(paymentId),
+          type: 'pix_prepaid',
+          planName,
+          amount: Number(paymentData.transaction_amount) || 29.90,
+          customerName,
+          customerEmail,
+          userId: String(userId),
+          paymentMethod: paymentData.payment_method_id ? paymentData.payment_method_id.toUpperCase() : 'PIX'
+        }).catch(err => console.error('[Check Status] Error notifying admin:', err));
       }
     }
 
@@ -460,6 +480,17 @@ const handleMercadoPagoWebhook = async (req: express.Request, res: express.Respo
                 planId: 'monthly_card',
                 durationDays: 31
               });
+
+              // Disparar Alerta de Venda para o Administrador (Push Hotmart + E-mail)
+              notifyAdminSaleApproved({
+                transactionId: String(subId),
+                type: 'credit_card_recurring',
+                planName: 'Assinatura Mensal VIP (Cartão)',
+                amount: Number((sub as any).auto_recurring?.transaction_amount) || 29.90,
+                customerEmail: sub.payer_email || (typeof userId === 'string' && userId.includes('@') ? userId : undefined),
+                userId: String(userId),
+                paymentMethod: 'Cartão de Crédito (Recorrente)'
+              }).catch(err => console.error('[MP Webhook] Error notifying admin on recurring sale:', err));
             }
           } else if (sub.status === 'cancelled') {
             const usersRef = firestore.collection("users");
@@ -503,13 +534,32 @@ const handleMercadoPagoWebhook = async (req: express.Request, res: express.Respo
           const userId = (paymentData.metadata as any)?.user_id || paymentData.external_reference || (paymentData.payer as any)?.email;
           if (userId) {
             if (paymentData.status === 'approved') {
+              const meta = (paymentData.metadata as any) || {};
+              const payer = (paymentData.payer as any) || {};
+              const planId = meta.plan_id || 'pix_30_days';
+              const planName = planId === 'pix_30_days' ? 'Passe VIP 30 Dias (PIX)' : 'Plano VIP Florescer';
+              const customerName = payer.first_name ? `${payer.first_name} ${payer.last_name || ''}`.trim() : undefined;
+              const customerEmail = payer.email;
+
               await activateUserPremium({
                 userId,
                 paymentId: String(paymentId),
                 type: 'pix_prepaid',
-                planId: (paymentData.metadata as any)?.plan_id || 'pix_30_days',
+                planId,
                 durationDays: 30
               });
+
+              // Disparar Alerta de Venda para o Administrador (Push Hotmart + E-mail)
+              notifyAdminSaleApproved({
+                transactionId: String(paymentId),
+                type: 'pix_prepaid',
+                planName,
+                amount: Number(paymentData.transaction_amount) || 29.90,
+                customerName,
+                customerEmail,
+                userId: String(userId),
+                paymentMethod: paymentData.payment_method_id ? paymentData.payment_method_id.toUpperCase() : 'PIX'
+              }).catch(err => console.error('[MP Webhook] Error notifying admin on PIX sale:', err));
             } else if (
               paymentData.status === 'refunded' || 
               paymentData.status === 'charged_back' || 
@@ -546,6 +596,35 @@ app.post("/api/webhook/mercadopago", handleMercadoPagoWebhook);
 app.post("/api/mercadopago/webhook", handleMercadoPagoWebhook);
 app.get("/api/webhook/mercadopago", (req, res) => res.status(200).json({ status: "ok", message: "Mercado Pago Webhook endpoint is live and ready" }));
 app.get("/api/mercadopago/webhook", (req, res) => res.status(200).json({ status: "ok", message: "Mercado Pago Webhook endpoint is live" }));
+
+// Endpoint para testar o alerta de vendas estilo Hotmart (Push + E-mail)
+app.post("/api/admin/test-sale-alert", async (req, res) => {
+  try {
+    const { 
+      amount = 29.90, 
+      planName = "Passe VIP 30 Dias (PIX)", 
+      customerName = "Cliente Teste", 
+      customerEmail = "teste@exemplo.com",
+      paymentMethod = "PIX"
+    } = req.body || {};
+    
+    const testId = `test_${Date.now()}`;
+    const result = await notifyAdminSaleApproved({
+      transactionId: testId,
+      type: 'pix_prepaid',
+      planName,
+      amount: Number(amount),
+      customerName,
+      customerEmail,
+      paymentMethod
+    });
+
+    res.json({ success: true, testId, result });
+  } catch (error: any) {
+    console.error("[Test Sale Alert] Error:", error);
+    res.status(500).json({ error: error?.message || "Failed to trigger test sale alert" });
+  }
+});
 
 // Fallback / Auxiliary Text-To-Speech Route
 app.post("/api/tts", async (req, res) => {

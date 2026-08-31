@@ -21,15 +21,19 @@ messaging.onBackgroundMessage((payload) => {
   // We only manually call showNotification if this was a data-only push payload,
   // preventing duplicate notifications on Android/iOS/Desktop.
   if (!payload.notification) {
-    const notificationTitle = payload.data?.title || 'Florescer Devocional';
+    const isSaleAlert = payload.data?.type === 'admin_sale_alert';
+    const notificationTitle = payload.data?.title || (isSaleAlert ? '🎉 Nova Venda Realizada!' : 'Florescer Devocional');
     const notificationOptions = {
       body: payload.data?.body || 'Um novo versículo e reflexão esperam por você hoje.',
-      icon: '/images/rosa.png',
-      badge: '/images/rosa.png',
-      tag: payload.data?.tag || 'florescer-daily-push',
-      renotify: false,
+      icon: payload.data?.icon || (isSaleAlert ? '/images/logo.png' : '/images/rosa.png'),
+      badge: payload.data?.badge || (isSaleAlert ? '/images/logo.png' : '/images/rosa.png'),
+      image: payload.data?.image || undefined,
+      tag: payload.data?.tag || (isSaleAlert ? `admin-sale-${Date.now()}` : 'florescer-daily-push'),
+      renotify: isSaleAlert ? true : false,
+      requireInteraction: isSaleAlert ? true : false,
+      vibrate: isSaleAlert ? [300, 100, 300, 100, 400] : [200, 100, 200],
       data: {
-        url: payload.data?.url || payload.fcmOptions?.link || '/'
+        url: payload.data?.url || payload.fcmOptions?.link || (isSaleAlert ? '/?tab=admin_users' : '/')
       }
     };
 
