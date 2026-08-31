@@ -310,7 +310,7 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
     .detail-value { font-size: 15px; font-weight: 700; color: #0f172a; word-break: break-word; overflow-wrap: break-word; line-height: 1.4; }
     .status-badge { display: inline-block; background-color: #22c55e; color: #ffffff; padding: 4px 10px; border-radius: 9999px; font-size: 12px; font-weight: 700; margin-top: 2px; }
     .footer { background-color: #f8fafc; padding: 20px 16px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; line-height: 1.5; }
-    .btn { display: inline-block; width: 100%; max-width: 320px; box-sizing: border-box; background-color: #fbbf24; color: #78350f !important; font-weight: 800; font-size: 15px; padding: 14px 20px; border-radius: 12px; text-decoration: none; text-align: center; box-shadow: 0 4px 12px rgba(251, 191, 36, 0.35); }
+    .btn { display: inline-block; width: 100%; max-width: 320px; box-sizing: border-box; background-color: #0f172a; color: #ffffff !important; font-weight: 800; font-size: 15px; padding: 14px 20px; border-radius: 12px; text-decoration: none; text-align: center; border: 1px solid #1e293b; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25); }
   </style>
 </head>
 <body style="margin: 0; padding: 12px; background-color: #f1f5f9;">
@@ -369,7 +369,7 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
       </div>
 
       <div style="text-align: center; margin-top: 24px;">
-        <a href="${adminDashboardUrl}" class="btn" style="display: inline-block; width: 100%; max-width: 320px; box-sizing: border-box; background-color: #fbbf24; color: #78350f !important; font-weight: 800; font-size: 15px; padding: 14px 20px; border-radius: 12px; text-decoration: none; text-align: center;">
+        <a href="${adminDashboardUrl}" class="btn" style="display: inline-block; width: 100%; max-width: 320px; box-sizing: border-box; background-color: #0f172a; color: #ffffff !important; font-weight: 800; font-size: 15px; padding: 14px 20px; border-radius: 12px; text-decoration: none; text-align: center; border: 1px solid #1e293b;">
           Acessar Painel de Controle ➜
         </a>
       </div>
