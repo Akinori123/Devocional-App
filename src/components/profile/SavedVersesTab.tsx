@@ -441,7 +441,7 @@ export function SavedVersesTab({ onNavigateToBible }: SavedVersesTabProps = {}) 
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 [contain:content]">
           {filteredItems.map((item) => {
             const colorConfig = HIGHLIGHT_COLORS.find((c) => c.id === item.color) || HIGHLIGHT_COLORS[0];
             const reference = `${item.bookName} ${item.chapter}:${item.verse}`;
@@ -451,7 +451,9 @@ export function SavedVersesTab({ onNavigateToBible }: SavedVersesTabProps = {}) 
                 key={item.id}
                 onClick={() => handleCardClick(item)}
                 className={cn(
-                  "p-4 sm:p-5 rounded-2xl shadow-xs border relative overflow-hidden transition-all duration-200 hover:shadow-md cursor-pointer group active:scale-[0.99]",
+                  "p-4 sm:p-5 rounded-2xl border relative overflow-hidden cursor-pointer group",
+                  "transform-gpu [transform:translateZ(0)] [backface-visibility:hidden] [contain:content] isolate",
+                  "shadow-xs hover:shadow-sm active:scale-[0.99] transition-[transform,box-shadow,background-color,border-color] duration-150 ease-out",
                   colorConfig.colorClass,
                   colorConfig.borderClass
                 )}
@@ -459,7 +461,7 @@ export function SavedVersesTab({ onNavigateToBible }: SavedVersesTabProps = {}) 
                 {/* Borda lateral indicando a cor do marca-texto */}
                 <div 
                   className={cn(
-                    "absolute top-0 left-0 w-1.5 h-full", 
+                    "absolute top-0 left-0 w-1.5 h-full pointer-events-none", 
                     colorConfig.borderClass.replace('border-', 'bg-')
                   )} 
                 />
