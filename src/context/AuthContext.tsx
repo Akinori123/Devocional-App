@@ -65,6 +65,11 @@ export interface UserProfile {
   claimedDailyMissions?: string[];
   unlockedSecretModules?: string[];
   unlocked_modules?: string[];
+  diarySummaryUsage?: {
+    weekId?: string;
+    count?: number;
+    lastUsedAt?: string;
+  };
 }
 
 interface AuthContextType {

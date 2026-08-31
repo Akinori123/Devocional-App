@@ -177,7 +177,7 @@ Mantenha o tom empático, pastoral, acolhedor e edificante em até 3 parágrafos
 
     const systemInstruction = `Você é um teólogo e pastor empático. Explique de forma clara, acessível e devocional o significado do versículo bíblico fornecido. Traga o contexto histórico se necessário, mas foque em como aplicar essa palavra na vida prática hoje. Mantenha a resposta em até 3 parágrafos curtos. Retorne estritamente o formato JSON estruturado.`;
 
-    const modelsToTry = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-3.5-flash-lite", "gemini-3.7-flash", "gemini-3.6-flash"];
     let response: any = null;
     let lastError: any = null;
 

@@ -816,14 +816,14 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
       {/* Modal de Compartilhamento de Imagem - Estúdio */}
       {showShareModal && (
         <div 
-          className="fixed inset-0 z-[100] flex flex-col bg-white/95 dark:bg-slate-900/95 sm:p-6 overflow-hidden backdrop-blur-md animate-in fade-in duration-200"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-black/70 dark:bg-black/80 overflow-hidden backdrop-blur-md animate-in fade-in duration-200"
           onClick={() => setShowShareModal(false)}
         >
           <div 
-            className="flex-1 flex flex-col w-full h-full max-w-lg mx-auto"
+            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh] overflow-hidden border border-slate-200 dark:border-white/10"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between p-4 sm:p-0 sm:mb-6 border-b border-slate-200 dark:border-white/10 sm:border-0">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-white/10 shrink-0">
               <h3 className="text-slate-900 dark:text-white font-bold text-lg flex items-center gap-2">
                 <Palette className="w-5 h-5 text-yellow-500" /> Estúdio de Criação
               </h3>
@@ -836,10 +836,10 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
               </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center">
+            <div className="flex-1 overflow-y-auto max-h-[85vh] p-4 sm:p-6 flex flex-col items-center custom-scrollbar">
               
               {/* Controles da IA */}
-              <div className="w-full max-w-sm mb-6 space-y-4">
+              <div className="w-full max-w-sm mb-4 space-y-4">
                 <div className="bg-slate-50 dark:bg-white/5 p-4 rounded-xl border border-slate-200 dark:border-white/10">
                   <label className="text-slate-700 dark:text-white/80 text-sm font-medium mb-2 block">
                     Fundo Gerado por IA
@@ -849,6 +849,11 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
                       type="text" 
                       value={customPrompt}
                       onChange={(e) => setCustomPrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && customPrompt.trim() && !isGeneratingImage) {
+                          handleGenerateBg(customPrompt);
+                        }
+                      }}
                       placeholder="Ex: Jardim com flores ao amanhecer..."
                       className="flex-1 bg-white dark:bg-black/30 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm placeholder:text-slate-400 dark:placeholder:text-white/30 outline-none focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 transition-all"
                     />
@@ -902,64 +907,103 @@ export function DevotionalReader({ devotional, isAllRead, onChangeTab, onNavigat
                 </div>
               </div>
 
-              {/* O "Card" que será transformado em imagem (Stories 9:16) */}
-              <div 
-                ref={cardRef}
-                className="w-full max-w-[280px] aspect-[9/16] rounded-2xl shadow-2xl p-6 flex flex-col items-center justify-center text-center relative overflow-hidden bg-black ring-1 ring-white/10"
-                style={{ padding: '2rem' }}
-              >
-                {generatedBg ? (
-                  <img src={generatedBg} alt="Fundo" className="absolute inset-0 w-full h-full object-cover opacity-80" />
-                ) : useFallbackBg ? (
-                  <>
-                    <div className="absolute inset-0 bg-gradient-to-br from-rose-600 via-rose-800 to-purple-900 opacity-95"></div>
-                    <div className="absolute top-0 left-0 w-full h-full opacity-30 mix-blend-overlay bg-gradient-to-tr from-white/20 to-transparent"></div>
-                    <div className="absolute -top-24 -right-24 w-56 h-56 bg-white/20 rounded-full blur-3xl"></div>
-                    <div className="absolute -bottom-24 -left-24 w-56 h-56 bg-black/50 rounded-full blur-3xl"></div>
-                  </>
-                ) : (
-                  <>
-                    <div className="absolute inset-0 bg-gradient-to-br from-yellow-600 via-yellow-700 to-yellow-900 opacity-90"></div>
-                    <div className="absolute top-0 left-0 w-full h-full opacity-20 mix-blend-overlay bg-gradient-to-tr from-white/10 to-transparent"></div>
-                    <div className="absolute -top-24 -right-24 w-48 h-48 bg-white/20 rounded-full blur-3xl"></div>
-                    <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-black/40 rounded-full blur-3xl"></div>
-                  </>
-                )}
-                
-                {generatedBg && <div className="absolute inset-0 bg-black/40 mix-blend-multiply"></div>}
-                
-                <div className="relative z-10 flex-1 flex flex-col items-center justify-center w-full mt-8">
-                  <QuoteIcon className="w-8 h-8 text-white/60 mb-4 drop-shadow-md" />
-                  <p className="text-white font-serif text-lg sm:text-xl font-bold leading-relaxed drop-shadow-xl" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
-                    "{displayVerseText || devotional.title}"
-                  </p>
-                  {displayVerseRef && (
-                    <span className="text-yellow-300 font-serif font-semibold text-xs sm:text-sm mt-3 drop-shadow-md">
-                      — {displayVerseRef}
-                    </span>
-                  )}
-                  <div className="w-12 h-1 bg-yellow-400/80 rounded-full mt-6 mb-2" />
-                </div>
-                
-                <div className="relative z-10 mt-auto pt-8 flex flex-col items-center justify-center gap-1 w-full pb-4">
-                  <div className="flex items-center gap-2 text-white/90">
-                    <div className="w-5 h-5 bg-white/20 rounded-md flex items-center justify-center backdrop-blur-sm">
-                      <Sparkles className="w-3 h-3 text-white" />
+              {/* O "Card" que será transformado em imagem (Pré-visualização e Exportação) */}
+              {(() => {
+                const rawQuote = (displayVerseText || devotional.beautifulWord || devotional.title || '').trim();
+                // Limpa aspas repetidas se já vierem no texto
+                const cleanQuote = rawQuote.replace(/^["'“](.*)["'”]$/, '$1').trim();
+                const quoteLength = cleanQuote.length;
+
+                // Escala tipográfica dinâmica para que textos longos nunca vazem ou cortem
+                let textClasses = "text-base sm:text-lg font-bold leading-relaxed";
+                let quoteIconSize = "w-6 h-6 sm:w-7 sm:h-7";
+
+                if (quoteLength > 240) {
+                  textClasses = "text-xs sm:text-sm font-medium leading-snug";
+                  quoteIconSize = "w-5 h-5";
+                } else if (quoteLength > 150) {
+                  textClasses = "text-sm sm:text-base font-semibold leading-snug";
+                  quoteIconSize = "w-5 h-5 sm:w-6 sm:h-6";
+                }
+
+                return (
+                  <div 
+                    ref={cardRef}
+                    className="relative flex flex-col justify-between items-center text-center p-6 sm:p-7 w-full max-w-[300px] sm:max-w-[320px] aspect-[9/16] min-h-[380px] sm:min-h-[440px] rounded-2xl shadow-2xl overflow-hidden bg-slate-950 ring-1 ring-white/10 my-1 isolate"
+                  >
+                    {/* Camada de Fundo (Background isolado em camada inferior com z-0 e elementos acima com z-10) */}
+                    <div className="absolute inset-0 w-full h-full pointer-events-none z-0 overflow-hidden">
+                      {generatedBg ? (
+                        <>
+                          <img 
+                            src={generatedBg} 
+                            alt="Fundo Gerado" 
+                            className="w-full h-full object-cover" 
+                            crossOrigin="anonymous"
+                          />
+                          <div className="absolute inset-0 bg-black/45 mix-blend-multiply" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/40" />
+                        </>
+                      ) : useFallbackBg ? (
+                        <div className="w-full h-full bg-gradient-to-br from-rose-700 via-rose-900 to-purple-950 opacity-95 relative">
+                          <div className="absolute -top-20 -right-20 w-48 h-48 bg-white/20 rounded-full blur-3xl" />
+                          <div className="absolute -bottom-20 -left-20 w-48 h-48 bg-black/60 rounded-full blur-3xl" />
+                        </div>
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-yellow-700 via-yellow-800 to-yellow-950 opacity-95 relative">
+                          <div className="absolute -top-20 -right-20 w-48 h-48 bg-white/20 rounded-full blur-3xl" />
+                          <div className="absolute -bottom-20 -left-20 w-48 h-48 bg-black/60 rounded-full blur-3xl" />
+                        </div>
+                      )}
                     </div>
-                    <span className="text-xs font-bold tracking-wider uppercase drop-shadow-md">Florescer</span>
+
+                    {/* Bloco 1 & 2: Topo e Centro — Aspas, Versículo e Referência no fluxo normal do Flex com z-10 */}
+                    <div className="relative z-10 flex-1 flex flex-col justify-center items-center w-full my-auto py-3">
+                      <QuoteIcon className={cn("text-white/80 drop-shadow-md mb-2.5 shrink-0", quoteIconSize)} />
+                      
+                      <p 
+                        className={cn(
+                          "text-white font-serif drop-shadow-xl break-words [overflow-wrap:anywhere] hyphens-auto max-w-full", 
+                          textClasses
+                        )} 
+                        style={{ textShadow: '0 2px 10px rgba(0,0,0,0.6)' }}
+                      >
+                        "{cleanQuote}"
+                      </p>
+
+                      {/* Bloco Meio: Referência bíblica com margem segura */}
+                      {displayVerseRef && (
+                        <p className="text-yellow-300 font-serif font-semibold text-xs sm:text-sm mt-3.5 drop-shadow-md leading-normal shrink-0">
+                          — {displayVerseRef}
+                        </p>
+                      )}
+
+                      {/* Divisor Decorativo */}
+                      <div className="w-12 h-0.5 bg-yellow-400/80 rounded-full mt-3.5 shrink-0" />
+                    </div>
+                    
+                    {/* Bloco 3: Rodapé — Logotipo e Marca com z-10 */}
+                    <div className="relative z-10 mt-4 pt-1 flex flex-col items-center justify-center gap-1 w-full shrink-0">
+                      <div className="flex items-center gap-2 text-white/95">
+                        <div className="w-5 h-5 bg-white/20 rounded-md flex items-center justify-center backdrop-blur-sm shadow-xs">
+                          <Sparkles className="w-3 h-3 text-white" />
+                        </div>
+                        <span className="text-xs font-bold tracking-widest uppercase drop-shadow-md">Florescer</span>
+                      </div>
+                      <p className="text-[9px] text-white/70 tracking-widest uppercase font-medium">Devocional App</p>
+                    </div>
                   </div>
-                  <p className="text-[9px] text-white/60 tracking-widest uppercase mt-1">Devocional App</p>
-                </div>
-              </div>
+                );
+              })()}
               
             </div>
 
-            {/* Z-index adjustment and padding-bottom to avoid nav overlap */}
-            <div className="p-4 sm:p-0 sm:mt-6 sm:max-w-sm sm:mx-auto sm:w-full bg-white/90 dark:bg-slate-900/90 border-t border-slate-200 dark:border-white/10 sm:border-0 sm:bg-transparent pb-24 sm:pb-0 z-10">
+            {/* Rodapé com botão de compartilhamento */}
+            <div className="p-4 sm:px-6 sm:py-4 bg-slate-50/90 dark:bg-slate-900/90 border-t border-slate-200 dark:border-white/10 shrink-0">
               <button
                 onClick={handleShareImage}
                 disabled={isGeneratingImage}
-                className="w-full flex items-center justify-center gap-2 bg-yellow-500 hover:bg-yellow-600 disabled:opacity-50 disabled:bg-gray-500 text-white py-4 px-6 rounded-2xl font-bold shadow-lg active:scale-[0.98] transition-all"
+                className="w-full flex items-center justify-center gap-2 bg-yellow-500 hover:bg-yellow-600 disabled:opacity-50 disabled:bg-gray-500 text-white py-3.5 px-6 rounded-2xl font-bold shadow-lg active:scale-[0.98] transition-all"
               >
                 <Share2 className="w-5 h-5" />
                 Compartilhar Card

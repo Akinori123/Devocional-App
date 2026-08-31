@@ -656,7 +656,7 @@ REQUISITOS ESSENCIAIS:
 
 Retorne estritamente o JSON com as chaves title, beautifulWord e content.`;
 
-    const modelsToTry = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-3.5-flash-lite", "gemini-3.7-flash", "gemini-3.6-flash"];
     let response: any = null;
     let lastError: any = null;
 
@@ -810,7 +810,7 @@ Mantenha o tom empático, pastoral, acolhedor e edificante em até 3 parágrafos
 
     const systemInstruction = `Você é um teólogo e pastor empático. Explique de forma clara, acessível e devocional o significado do versículo bíblico fornecido. Traga o contexto histórico se necessário, mas foque em como aplicar essa palavra na vida prática hoje. Mantenha a resposta em até 3 parágrafos curtos. Retorne estritamente o formato JSON estruturado.`;
 
-    const modelsToTry = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-3.5-flash-lite", "gemini-3.7-flash", "gemini-3.6-flash"];
     let response: any = null;
     let lastError: any = null;
 
@@ -924,7 +924,7 @@ app.post("/api/gemini/generate-bulk-devotionals", async (req, res) => {
     if (partNumber && partNumber > 1) {
       prompt = `Este é o volume ${partNumber} sobre o tema "${theme}". Gere 7 novos dias com abordagens mais profundas e avançadas, não repita os conceitos básicos dos volumes anteriores.\n\nINSTRUÇÕES:\n1. Ortografia em Português (Brasil).\n2. Crie 7 objetos diferentes no array.\n3. O versículo base não deve se repetir.\n4. Cada reflexão deve ter entre 120 e 200 palavras, seguida de uma oração curta ao final no formato '**Oração:** ...'.`;
     }
-    const modelsToTry = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-3.5-flash-lite", "gemini-3.7-flash", "gemini-3.6-flash"];
     let response: any = null;
     let lastError: any = null;
 
@@ -981,7 +981,7 @@ app.post("/api/gemini/generate-bulk-devotionals", async (req, res) => {
 
 app.post("/api/gemini/summarize-diary", async (req, res) => {
   try {
-    const { notes } = req.body;
+    const { notes, period } = req.body || {};
     let apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: "Chave GEMINI_API_KEY do servidor não configurada." });
@@ -1000,26 +1000,45 @@ app.post("/api/gemini/summarize-diary", async (req, res) => {
       }
     });
 
-    const notesSummaryText = notes
-      .map((n, i) => `[Registro ${i + 1} - ${n.date || 'Sem data'}]:\n${n.content || ''}`)
-      .join('\n\n');
+    // Limitar para até 15 anotações e truncar cada anotação a no máximo 600 caracteres para proteção de tokens
+    const sanitizedNotes = notes.slice(0, 15).map((n: any, i: number) => {
+      const title = typeof n.title === 'string' && n.title.trim() ? ` [Título: ${n.title.trim()}]` : '';
+      const date = typeof n.date === 'string' && n.date.trim() ? n.date.trim() : 'Data recente';
+      let content = typeof n.content === 'string' ? n.content.trim() : '';
+      if (content.length > 600) {
+        content = content.substring(0, 597) + '...';
+      }
+      return `[Reflexão ${i + 1} - ${date}${title}]:\n${content}`;
+    }).filter(t => t.length > 0);
+
+    const notesSummaryText = sanitizedNotes.join('\n\n');
+
+    const periodLabel = period === '7d' 
+      ? 'dos últimos 7 dias' 
+      : period === '30d' 
+        ? 'do último mês' 
+        : 'recentes';
 
     const prompt = `Você é um mentor e conselheiro espiritual cristão acolhedor, empático e sábio do aplicativo Florescer.
-Abaixo estão as reflexões e anotações do diário espiritual de um usuário nos últimos dias:
+Abaixo estão as anotações e orações do diário espiritual de um usuário ${periodLabel}:
 
 ---
 ${notesSummaryText}
 ---
 
-Sua missão é gerar um "Resumo Espiritual Semanal" caloroso, pastoral e inspirador.
+Sua missão é gerar um "Resumo Espiritual" caloroso, pastoral, reflexivo e altamente encorajador.
 Retorne um JSON estruturado com os seguintes campos:
-- "title": Título inspirador para a semana (ex: "Sua Jornada de Paz e Confiança")
-- "summary": Resumo geral reflexivo e afetuoso sobre os pensamentos e sentimentos expressos (2 a 3 parágrafos curtos).
-- "spiritualHighlights": Array com 2 a 4 pontos de destaque ou temas centrais identificados nas anotações (strings curtas com emoji).
-- "verseGuidance": Versículo bíblico encorajador para a semana com a referência (ex: "O Senhor é o meu pastor... (Salmos 23:1)").
-- "personalPrayer": Uma oração pessoal, profunda e encorajadora para encerrar a semana e abençoar a próxima.`;
+- "title": Título inspirador e poético que resume a essência do momento espiritual (ex: "Sua Jornada de Paz, Esperança e Confiança").
+- "summary": Resumo geral reflexivo e afetuoso sobre os sentimentos, preces e crescimento expressos pelo usuário (2 a 3 parágrafos confortáveis e afetuosos).
+- "spiritualHighlights": Array com 2 a 4 pontos de destaque ou temas centrais identificados nas anotações (strings curtas começando com um emoji, ex: "🌱 Cultivando paciência em momentos de espera").
+- "verseGuidance": Versículo bíblico encorajador perfeito para a fase atual com a referência (ex: "O Senhor é o meu pastor; nada me faltará. (Salmos 23:1)").
+- "personalPrayer": Uma oração pessoal, profunda e encorajadora para encerrar a leitura e abençoar a caminhada com Deus.`;
 
-    const modelsToTry = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+    const modelsToTry = [
+      "gemini-3.5-flash-lite",
+      "gemini-3.7-flash",
+      "gemini-3.6-flash"
+    ];
     let response: any = null;
     let lastError: any = null;
 
@@ -1051,6 +1070,8 @@ Retorne um JSON estruturado com os seguintes campos:
       } catch (err: any) {
         lastError = err;
         console.warn(`[Diary Summary] Model ${model} failed, attempting next:`, err?.message || err);
+        // Pequena pausa para evitar spike se houver 503
+        await new Promise((resolve) => setTimeout(resolve, 300));
       }
     }
 
@@ -1075,17 +1096,27 @@ Retorne um JSON estruturado com os seguintes campos:
   }
 });
 
+const CURATED_CHRISTIAN_BACKGROUNDS = [
+  'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1080&auto=format&fit=crop&q=80', // Amanhecer na praia
+  'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1080&auto=format&fit=crop&q=80', // Montanhas majestosas
+  'https://images.unsplash.com/photo-1518495973542-4542c06a5843?w=1080&auto=format&fit=crop&q=80', // Luz suave entre árvores
+  'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=1080&auto=format&fit=crop&q=80', // Céu estrelado sereno
+  'https://images.unsplash.com/photo-1490750967868-88aa4486c946?w=1080&auto=format&fit=crop&q=80', // Flores desabrochando ao sol
+  'https://images.unsplash.com/photo-1470240731273-7821a6eeb6bd?w=1080&auto=format&fit=crop&q=80', // Campo calmo ao entardecer
+];
+
 app.post("/api/gemini/generate-image", async (req, res) => {
   try {
-    const { prompt } = req.body;
-    let geminiApiKey = process.env.GEMINI_API_KEY;
-    let unsplashApiKey = process.env.UNSPLASH_ACCESS_KEY;
-    if (!unsplashApiKey) {
-      return res.status(500).json({ error: "Chave UNSPLASH_ACCESS_KEY não configurada." });
-    }
-    let keywords = prompt || 'nature,landscape,peaceful';
-    if (geminiApiKey && prompt) {
-      const modelsToTry = ['gemini-3.6-flash', 'gemini-3.1-flash-lite', 'gemini-3.7-flash', 'gemini-flash-latest'];
+    const { prompt } = req.body || {};
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    const unsplashApiKey = process.env.UNSPLASH_ACCESS_KEY;
+
+    let visualPrompt = prompt?.trim() || 'peaceful biblical sunrise over mountains, golden light, spiritual serenity';
+    let englishKeywords = 'nature,peaceful,sunrise,spiritual';
+
+    // 1. Otimização Inteligente do Prompt com Gemini (se disponível)
+    if (geminiApiKey && prompt?.trim()) {
+      const modelsToTry = ['gemini-3.5-flash-lite', 'gemini-3.7-flash', 'gemini-3.6-flash'];
       for (const model of modelsToTry) {
         try {
           const ai = new GoogleGenAI({ 
@@ -1098,38 +1129,90 @@ app.post("/api/gemini/generate-image", async (req, res) => {
           });
           const response = await ai.models.generateContent({
             model, 
-            contents: `Extract 2 to 3 main visual keywords in English from this prompt for a photo search. Return ONLY the keywords separated by comma, no extra text. Prompt: "${prompt}"`
+            contents: `Transform this user input into a detailed, poetic and visual English photography prompt for a vertical wallpaper (Stories 9:16), cinematic, serene and beautiful. Avoid people faces or text. Prompt: "${prompt}"`
           });
           if (response?.text) {
-            keywords = response.text.trim();
+            visualPrompt = response.text.trim().replace(/["']/g, '');
+            englishKeywords = visualPrompt.slice(0, 100);
             break;
           }
         } catch (e: any) {
-          // Silent fallback to next model or default keyword extraction
           continue;
         }
       }
     }
-    let unsplashUrl = `https://api.unsplash.com/photos/random?query=${encodeURIComponent(keywords)}&orientation=portrait&client_id=${unsplashApiKey}`;
-    let unsplashRes = await fetch(unsplashUrl);
-    if (!unsplashRes.ok) {
-       unsplashUrl = `https://api.unsplash.com/photos/random?query=nature,landscape,peaceful&orientation=portrait&client_id=${unsplashApiKey}`;
-       unsplashRes = await fetch(unsplashUrl);
-       if (!unsplashRes.ok) {
-           throw new Error(`Erro na API do Unsplash: ${unsplashRes.statusText}`);
-       }
+
+    let imageBuffer: Buffer | null = null;
+    let imageMimeType = 'image/jpeg';
+
+    // 2. Método Principal: Geração de Imagem com IA (Pollinations AI turbo - rápido e estável)
+    try {
+      const seed = Math.floor(Math.random() * 900000) + 100000;
+      const cleanVisualPrompt = encodeURIComponent(`${visualPrompt}, vertical wallpaper 9:16, aesthetic warm lighting, high quality`);
+      const aiImageUrl = `https://image.pollinations.ai/prompt/${cleanVisualPrompt}?width=540&height=960&nologo=true&seed=${seed}&model=turbo`;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 18000); // 18s timeout
+      
+      const aiRes = await fetch(aiImageUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (aiRes.ok) {
+        const arrayBuffer = await aiRes.arrayBuffer();
+        if (arrayBuffer && arrayBuffer.byteLength > 1000) {
+          imageBuffer = Buffer.from(arrayBuffer);
+          imageMimeType = aiRes.headers.get('content-type') || 'image/jpeg';
+        }
+      }
+    } catch (aiErr: any) {
+      if (aiErr?.name !== 'AbortError') {
+        console.warn('[Generate Image] Pollinations AI attempt failed, falling back:', aiErr?.message || aiErr);
+      }
     }
-    const unsplashData = await unsplashRes.json();
-    const photoUrl = unsplashData.urls.regular;
-    const photoResponse = await fetch(photoUrl);
-    const arrayBuffer = await photoResponse.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const base64 = buffer.toString('base64');
-    const mimeType = photoResponse.headers.get('content-type') || 'image/jpeg';
-    res.json({ image: `data:${mimeType};base64,${base64}` });
+
+    // 3. Fallback Unsplash (se a chave estiver configurada ou busca direta)
+    if (!imageBuffer && unsplashApiKey) {
+      try {
+        let unsplashUrl = `https://api.unsplash.com/photos/random?query=${encodeURIComponent(englishKeywords)}&orientation=portrait&client_id=${unsplashApiKey}`;
+        let unsplashRes = await fetch(unsplashUrl);
+        if (!unsplashRes.ok) {
+          unsplashUrl = `https://api.unsplash.com/photos/random?query=nature,landscape,peaceful&orientation=portrait&client_id=${unsplashApiKey}`;
+          unsplashRes = await fetch(unsplashUrl);
+        }
+        if (unsplashRes.ok) {
+          const unsplashData = await unsplashRes.json();
+          const photoUrl = unsplashData.urls?.regular || unsplashData.urls?.small;
+          if (photoUrl) {
+            const photoRes = await fetch(photoUrl);
+            const arrayBuffer = await photoRes.arrayBuffer();
+            imageBuffer = Buffer.from(arrayBuffer);
+            imageMimeType = photoRes.headers.get('content-type') || 'image/jpeg';
+          }
+        }
+      } catch (unsplashErr) {
+        console.warn('[Generate Image] Unsplash API fallback failed:', unsplashErr);
+      }
+    }
+
+    // 4. Fallback de Segurança com Curated CDN
+    if (!imageBuffer) {
+      const randomIndex = Math.floor(Math.random() * CURATED_CHRISTIAN_BACKGROUNDS.length);
+      const fallbackUrl = CURATED_CHRISTIAN_BACKGROUNDS[randomIndex];
+      const fallbackRes = await fetch(fallbackUrl);
+      const arrayBuffer = await fallbackRes.arrayBuffer();
+      imageBuffer = Buffer.from(arrayBuffer);
+      imageMimeType = fallbackRes.headers.get('content-type') || 'image/jpeg';
+    }
+
+    const base64 = imageBuffer.toString('base64');
+    return res.status(200).json({ 
+      image: `data:${imageMimeType};base64,${base64}`,
+      prompt: visualPrompt 
+    });
   } catch (error: any) {
-    console.error("Error generating image:", error);
-    res.status(500).json({ error: error.message || "Failed to generate image" });
+    console.error("Error generating image in /api/index:", error);
+    let msg = error?.message || "Não foi possível gerar a imagem no momento.";
+    return res.status(500).json({ error: msg });
   }
 });
 

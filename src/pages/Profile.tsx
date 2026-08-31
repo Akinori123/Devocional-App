@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
 import { MessageCircle, Mail, Heart } from 'lucide-react';
 import { TabType } from '../types';
+import { useDragScroll } from '../hooks/useDragScroll';
 
 export type ProfileTab = 'diary' | 'verses' | 'videos' | 'subscription' | 'settings';
 
@@ -33,7 +34,7 @@ export function Profile({ initialTab = 'diary', onChangeTab, onNavigateToBible }
   const [showSupportModal, setShowSupportModal] = useState(false);
   const { user } = useAuth();
   
-  const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const { dragProps } = useDragScroll<HTMLDivElement>();
   
   return (
     <div className="flex-1 flex flex-col bg-gray-50 dark:bg-slate-900 min-h-screen pb-24 transition-colors duration-200">
@@ -50,14 +51,8 @@ export function Profile({ initialTab = 'diary', onChangeTab, onNavigateToBible }
       {/* Tab Navigation - Grid/Flex responsivo para caber todas as 5 abas perfeitamente na tela no PC e Mobile */}
       <div className="bg-white dark:bg-slate-900 px-2 sm:px-3 pt-2.5 border-b border-gray-200 dark:border-slate-800 shrink-0 transition-colors duration-200 mt-2">
         <div 
-          ref={tabsContainerRef}
-          onWheel={(e) => {
-            if (tabsContainerRef.current) {
-              const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-              tabsContainerRef.current.scrollLeft += delta;
-            }
-          }}
-          className="flex items-center justify-between w-full overflow-x-auto scrollbar-none"
+          {...dragProps}
+          className="flex items-center justify-between w-full overflow-x-auto scrollbar-none cursor-grab active:cursor-grabbing select-none"
         >
           <button
             onClick={() => setActiveTab('diary')}

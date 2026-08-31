@@ -356,11 +356,15 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
         {/* Greeting & Streak Area */}
         <div className="px-6 pt-3 pb-6">
           {/* Greeting Text */}
-          <div className="flex justify-between items-start mb-3">
-            <div>
-              <h1 className="text-xl font-bold font-serif mb-0.5 text-yellow-950 dark:text-white">{getGreeting()}, {userName}!</h1>
+          <div className="flex justify-between items-start mb-3 gap-2">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-xl font-bold font-serif mb-1 text-yellow-950 dark:text-white leading-snug break-words">
+                {getGreeting()}, {userName}!
+              </h1>
               <div className="flex items-center gap-2">
-                <p className="text-yellow-900 dark:text-gray-300 text-sm font-medium leading-tight">Deus preparou algo especial para você hoje.</p>
+                <p className="text-yellow-900 dark:text-gray-300 text-xs sm:text-sm font-medium leading-normal break-words">
+                  Deus preparou algo especial para você hoje.
+                </p>
                 <div className="bg-white/60 dark:bg-slate-800 rounded-full p-1.5 backdrop-blur-md shadow-sm inline-flex shrink-0 text-yellow-950 dark:text-yellow-400">
                   <GreetingIcon />
                 </div>
@@ -368,11 +372,11 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
             </div>
           </div>
 
-          <div id="tour-streak" className="bg-white/40 dark:bg-slate-800/80 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border border-white/60 dark:border-slate-700 backdrop-blur-md shadow-sm flex items-center justify-between gap-2.5">
+          <div id="tour-streak" className="bg-white/40 dark:bg-slate-800/80 px-2.5 sm:px-4 py-2 rounded-xl border border-white/60 dark:border-slate-700 backdrop-blur-md shadow-sm flex items-center justify-between gap-1 sm:gap-2.5 w-full">
             {/* Ofensiva */}
-            <div className="flex items-center gap-2 shrink-0">
-              <Flame className="w-5 h-5 sm:w-5.5 sm:h-5.5 text-orange-500 fill-orange-500 shrink-0 filter drop-shadow-sm" />
-              <p className="text-sm font-bold text-yellow-950 dark:text-gray-100 whitespace-nowrap">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Flame className="w-4 h-4 sm:w-5 sm:h-5 text-orange-500 fill-orange-500 shrink-0 filter drop-shadow-sm" />
+              <p className="text-xs sm:text-sm font-bold text-yellow-950 dark:text-gray-100 whitespace-nowrap">
                 {getJourneyContent().text}
               </p>
             </div>
@@ -380,17 +384,17 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
             {/* Trigger Central: 🎯 Missões */}
             <button
               onClick={() => setShowMissionsModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-yellow-500/25 hover:bg-yellow-500/35 dark:bg-slate-700/80 dark:hover:bg-slate-700 text-yellow-950 dark:text-yellow-300 border border-yellow-600/25 dark:border-slate-600 font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+              className="inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg bg-yellow-500/25 hover:bg-yellow-500/35 dark:bg-slate-700/80 dark:hover:bg-slate-700 text-yellow-950 dark:text-yellow-300 border border-yellow-600/25 dark:border-slate-600 font-bold text-[11px] sm:text-xs shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
               title="Abrir Missões Diárias"
             >
-              <Target className="w-3.5 h-3.5 text-amber-700 dark:text-yellow-400" />
-              <span>Missões</span>
+              <Target className="w-3.5 h-3.5 text-amber-700 dark:text-yellow-400 shrink-0" />
+              <span className="whitespace-nowrap">Missões</span>
             </button>
 
             {/* Status */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/60 dark:border-slate-600 bg-white/60 dark:bg-slate-700/80 shadow-xs shrink-0 backdrop-blur-md">
-              <span className="text-sm sm:text-base leading-none select-none">{getJourneyContent().emoji}</span>
-              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-yellow-950 dark:text-yellow-300 whitespace-nowrap">
+            <div className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg border border-white/60 dark:border-slate-600 bg-white/60 dark:bg-slate-700/80 shadow-xs shrink-0 backdrop-blur-md">
+              <span className="text-xs sm:text-sm leading-none select-none shrink-0">{getJourneyContent().emoji}</span>
+              <span className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-yellow-950 dark:text-yellow-300 whitespace-nowrap">
                 {getJourneyContent().label}
               </span>
             </div>
@@ -600,7 +604,7 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
                         isCurrent 
                           ? 'border-yellow-300/90 dark:border-yellow-500/50 ring-2 ring-yellow-400/20' 
                           : 'border-gray-100 dark:border-slate-700 opacity-90 hover:opacity-100'
-                      } overflow-hidden flex flex-col shrink-0 w-[280px] snap-center transition-all duration-200`}
+                      } overflow-hidden flex flex-col shrink-0 w-[285px] sm:w-[310px] snap-center transition-all duration-200`}
                     >
                       {/* Deterministic Gradient Banner with Letter Avatar */}
                       <div className={`h-24 ${themeStyle.gradient} flex items-center justify-center p-4 relative overflow-hidden`}>
@@ -626,8 +630,8 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
                       
                       <div className="p-4 flex-1 flex flex-col justify-between">
                         <div>
-                          <div className="flex items-center justify-between gap-1 mb-1.5">
-                            <span className={`text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-md uppercase ${
+                          <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                            <span className={`text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-md uppercase shrink-0 ${
                               isCurrent && !devotional.isAllCompleted
                                 ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-300'
                                 : devotional.isAllCompleted
@@ -641,15 +645,15 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
                                 : `DIA ${devotional.dayNumber} • LIDO`}
                             </span>
                             
-                            <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 truncate max-w-[100px]" title={devotional.theme}>
+                            <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 truncate max-w-[140px]" title={devotional.theme}>
                               {devotional.theme}
                             </span>
                           </div>
                           
-                          <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-1 leading-tight line-clamp-1">
+                          <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-1 leading-snug line-clamp-2 break-words">
                             {devotional.title}
                           </h3>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mb-4">
+                          <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-3 break-words leading-relaxed mb-3">
                             {devotional.description}
                           </p>
                         </div>
