@@ -29,7 +29,15 @@ export function Bible({ initialSelection, clearInitialSelection, onChangeTab }: 
       if (handledSelectionRef.current === key) return;
       handledSelectionRef.current = key;
 
-      const book = bibleBooks.find(b => b.id === initialSelection.bookId);
+      const cleanSearch = (initialSelection.bookId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const book = bibleBooks.find(b => 
+        b.id.toLowerCase() === cleanSearch ||
+        b.name.toLowerCase().replace(/[^a-z0-9]/g, '') === cleanSearch ||
+        b.englishName.toLowerCase().replace(/[^a-z0-9]/g, '') === cleanSearch ||
+        b.id.toLowerCase().startsWith(cleanSearch) ||
+        cleanSearch.startsWith(b.id.toLowerCase())
+      );
+
       if (book) {
         setSelectedBook(book);
         setSelectedChapter(initialSelection.chapter);

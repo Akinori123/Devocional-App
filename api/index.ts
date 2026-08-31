@@ -8,6 +8,8 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getMessaging } from 'firebase-admin/messaging';
 import { MercadoPagoConfig, Preference, PreApproval, Payment } from 'mercadopago';
+import dailyPushHandler from './cron/daily-push';
+import coinsReminderHandler from './cron/coins-reminder';
 
 dotenv.config();
 
@@ -1313,5 +1315,9 @@ app.get("/api/coins/history/:userId", async (req, res) => {
     return res.status(500).json({ error: error?.message || "Failed to fetch coin history" });
   }
 });
+
+// 4. Cron Jobs (Daily Morning Push 8h & Coins Reminder 16h)
+app.all("/api/cron/daily-push", (req, res) => dailyPushHandler(req, res));
+app.all("/api/cron/coins-reminder", (req, res) => coinsReminderHandler(req, res));
 
 export default app;

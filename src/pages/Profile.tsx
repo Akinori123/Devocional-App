@@ -8,7 +8,7 @@ import { SettingsTab } from '../components/profile/SettingsTab';
 import { VipVideoBanner } from '../components/video/VipVideoBanner';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
-import { MessageCircle, Mail, Heart, Bookmark, Settings, Sparkles } from 'lucide-react';
+import { MessageCircle, Mail, Heart } from 'lucide-react';
 import { TabType } from '../types';
 
 export type ProfileTab = 'diary' | 'verses' | 'videos' | 'subscription' | 'settings';
@@ -16,13 +16,14 @@ export type ProfileTab = 'diary' | 'verses' | 'videos' | 'subscription' | 'setti
 interface ProfileProps {
   initialTab?: ProfileTab;
   onChangeTab?: (tab: TabType, subTab?: ProfileTab) => void;
+  onNavigateToBible?: (selection: { bookId: string; chapter: number; verse: number }) => void;
 }
 
-export function Profile({ initialTab = 'diary', onChangeTab }: ProfileProps = {}) {
+export function Profile({ initialTab = 'diary', onChangeTab, onNavigateToBible }: ProfileProps = {}) {
   const [activeTab, setActiveTab] = useState<ProfileTab>(initialTab);
   const prevInitialTabRef = useRef(initialTab);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (initialTab && initialTab !== prevInitialTabRef.current) {
       prevInitialTabRef.current = initialTab;
       setActiveTab(initialTab);
@@ -32,40 +33,7 @@ export function Profile({ initialTab = 'diary', onChangeTab }: ProfileProps = {}
   const [showSupportModal, setShowSupportModal] = useState(false);
   const { user } = useAuth();
   
-  // Carousel Drag to Scroll on PC & Mouse
   const tabsContainerRef = useRef<HTMLDivElement>(null);
-  const isMouseDownRef = useRef(false);
-  const startXRef = useRef(0);
-  const startScrollLeftRef = useRef(0);
-  const hasMovedRef = useRef(false);
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    isMouseDownRef.current = true;
-    hasMovedRef.current = false;
-    startXRef.current = e.clientX;
-    startScrollLeftRef.current = tabsContainerRef.current?.scrollLeft || 0;
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isMouseDownRef.current || !tabsContainerRef.current) return;
-    const deltaX = e.clientX - startXRef.current;
-    if (Math.abs(deltaX) > 4) {
-      hasMovedRef.current = true;
-      tabsContainerRef.current.scrollLeft = startScrollLeftRef.current - deltaX;
-    }
-  };
-
-  const handleMouseUp = () => {
-    isMouseDownRef.current = false;
-    setTimeout(() => {
-      hasMovedRef.current = false;
-    }, 100);
-  };
-
-  const handleTabClick = (tab: ProfileTab) => {
-    if (hasMovedRef.current) return;
-    setActiveTab(tab);
-  };
   
   return (
     <div className="flex-1 flex flex-col bg-gray-50 dark:bg-slate-900 min-h-screen pb-24 transition-colors duration-200">
@@ -79,84 +47,82 @@ export function Profile({ initialTab = 'diary', onChangeTab }: ProfileProps = {}
         />
       </div>
       
-      {/* Tab Navigation with Drag-to-Scroll & Wheel Scroll */}
-      <div className="bg-white dark:bg-slate-900 px-3 pt-3 border-b border-gray-200 dark:border-slate-800 shrink-0 transition-colors duration-200 mt-2">
+      {/* Tab Navigation - Grid/Flex responsivo para caber todas as 5 abas perfeitamente na tela no PC e Mobile */}
+      <div className="bg-white dark:bg-slate-900 px-2 sm:px-3 pt-2.5 border-b border-gray-200 dark:border-slate-800 shrink-0 transition-colors duration-200 mt-2">
         <div 
           ref={tabsContainerRef}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
           onWheel={(e) => {
-            if (tabsContainerRef.current && e.deltaY !== 0) {
-              tabsContainerRef.current.scrollLeft += e.deltaY;
+            if (tabsContainerRef.current) {
+              const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+              tabsContainerRef.current.scrollLeft += delta;
             }
           }}
-          className="flex gap-5 overflow-x-auto scrollbar-hide no-scrollbar cursor-grab active:cursor-grabbing select-none px-1"
+          className="flex items-center justify-between w-full overflow-x-auto scrollbar-none"
         >
           <button
-            onClick={() => handleTabClick('diary')}
+            onClick={() => setActiveTab('diary')}
             className={cn(
-              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap shrink-0 cursor-pointer",
-              activeTab === 'diary' ? "text-yellow-500 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+              "flex-1 pb-2.5 pt-1 text-center text-xs sm:text-sm font-semibold transition-colors relative whitespace-nowrap px-1 cursor-pointer",
+              activeTab === 'diary' ? "text-yellow-600 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             )}
           >
             Diário
             {activeTab === 'diary' && (
-              <div className="absolute bottom-0 left-0 w-full h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
+              <div className="absolute bottom-0 left-1 right-1 h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
             )}
           </button>
 
           <button
-            onClick={() => handleTabClick('verses')}
+            onClick={() => setActiveTab('verses')}
             className={cn(
-              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap shrink-0 cursor-pointer",
-              activeTab === 'verses' ? "text-yellow-500 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+              "flex-1 pb-2.5 pt-1 text-center text-xs sm:text-sm font-semibold transition-colors relative whitespace-nowrap px-1 cursor-pointer",
+              activeTab === 'verses' ? "text-yellow-600 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             )}
           >
-            Versos Salvos
+            <span className="hidden xs:inline">Versos </span>Salvos
             {activeTab === 'verses' && (
-              <div className="absolute bottom-0 left-0 w-full h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
+              <div className="absolute bottom-0 left-1 right-1 h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
             )}
           </button>
 
           <button
-            onClick={() => handleTabClick('videos')}
+            onClick={() => setActiveTab('videos')}
             className={cn(
-              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap flex items-center gap-1.5 shrink-0 cursor-pointer",
-              activeTab === 'videos' ? "text-yellow-500 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+              "flex-1 pb-2.5 pt-1 text-center text-xs sm:text-sm font-semibold transition-colors relative whitespace-nowrap px-1 cursor-pointer flex items-center justify-center gap-1",
+              activeTab === 'videos' ? "text-yellow-600 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             )}
           >
-            <Heart className={cn("w-3.5 h-3.5", activeTab === 'videos' ? "fill-yellow-500 text-yellow-500" : "text-gray-400")} />
-            Vídeos Favoritos
+            <Heart className={cn("w-3 h-3 shrink-0", activeTab === 'videos' ? "fill-yellow-500 text-yellow-500" : "text-gray-400")} />
+            <span>Vídeos</span>
             {activeTab === 'videos' && (
-              <div className="absolute bottom-0 left-0 w-full h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
+              <div className="absolute bottom-0 left-1 right-1 h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
             )}
           </button>
 
           <button
-            onClick={() => handleTabClick('subscription')}
+            onClick={() => setActiveTab('subscription')}
             className={cn(
-              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap shrink-0 cursor-pointer",
-              activeTab === 'subscription' ? "text-yellow-500 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+              "flex-1 pb-2.5 pt-1 text-center text-xs sm:text-sm font-semibold transition-colors relative whitespace-nowrap px-1 cursor-pointer",
+              activeTab === 'subscription' ? "text-yellow-600 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             )}
           >
             Assinatura
             {activeTab === 'subscription' && (
-              <div className="absolute bottom-0 left-0 w-full h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
+              <div className="absolute bottom-0 left-1 right-1 h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
             )}
           </button>
 
           <button
-            onClick={() => handleTabClick('settings')}
+            onClick={() => setActiveTab('settings')}
             className={cn(
-              "pb-3 text-sm font-semibold transition-colors relative whitespace-nowrap shrink-0 cursor-pointer",
-              activeTab === 'settings' ? "text-yellow-500 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+              "flex-1 pb-2.5 pt-1 text-center text-xs sm:text-sm font-semibold transition-colors relative whitespace-nowrap px-1 cursor-pointer",
+              activeTab === 'settings' ? "text-yellow-600 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             )}
           >
-            Configurações
+            <span className="hidden sm:inline">Configurações</span>
+            <span className="sm:hidden">Ajustes</span>
             {activeTab === 'settings' && (
-              <div className="absolute bottom-0 left-0 w-full h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
+              <div className="absolute bottom-0 left-1 right-1 h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
             )}
           </button>
         </div>
@@ -168,7 +134,9 @@ export function Profile({ initialTab = 'diary', onChangeTab }: ProfileProps = {}
           {activeTab === 'diary' && (
             <DiaryTab onNavigateToSubscription={() => setActiveTab('subscription')} />
           )}
-          {activeTab === 'verses' && <SavedVersesTab />}
+          {activeTab === 'verses' && (
+            <SavedVersesTab onNavigateToBible={onNavigateToBible} />
+          )}
           {activeTab === 'videos' && (
             <FavoriteVideosTab 
               onGoToPremium={() => setActiveTab('subscription')}

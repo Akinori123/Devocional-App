@@ -1,12 +1,31 @@
 import { useState, useRef, useEffect } from 'react';
 import { useSettings } from '../../context/SettingsContext';
 import { useAuth } from '../../context/AuthContext';
-import { Moon, Sun, User as UserIcon, Trash2, Edit2, X, Loader2, Camera, Bell, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { 
+  Moon, 
+  Sun, 
+  User as UserIcon, 
+  Trash2, 
+  Edit2, 
+  X, 
+  Loader2, 
+  Camera, 
+  Bell, 
+  AlertTriangle, 
+  ShieldAlert,
+  Lock,
+  Check,
+  ShieldCheck,
+  Eye,
+  EyeOff
+} from 'lucide-react';
 import { db, auth } from '../../lib/firebase';
 import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { deleteUser } from 'firebase/auth';
+import { deleteUser, updatePassword, sendPasswordResetEmail } from 'firebase/auth';
 import { useToast } from '../../context/ToastContext';
 import { usePushNotifications } from '../../hooks/usePushNotifications';
+import { validatePassword } from '../../utils/validation';
+import { cn } from '../../lib/utils';
 
 export function SettingsTab() {
   const toast = useToast();
@@ -45,6 +64,14 @@ export function SettingsTab() {
   const [editName, setEditName] = useState(profile?.name || '');
   const [editNeedArea, setEditNeedArea] = useState(profile?.needArea || '');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Alterar Senha State
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
   
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -118,6 +145,59 @@ export function SettingsTab() {
       toast.error('Não foi possível salvar as alterações.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleUpdatePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError('');
+
+    if (!user) return;
+
+    const validation = validatePassword(newPassword);
+    if (!validation.isValid) {
+      setPasswordError(validation.message || 'A senha deve ter entre 8 e 16 caracteres, incluindo uma letra maiúscula e um número.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError('A confirmação de senha não confere com a nova senha.');
+      return;
+    }
+
+    try {
+      setIsSavingPassword(true);
+      await updatePassword(user, newPassword);
+      toast.success('Senha alterada com sucesso!');
+      setIsChangingPassword(false);
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordError('');
+    } catch (error: any) {
+      console.error('Error changing password:', error);
+      if (error.code === 'auth/requires-recent-login') {
+        setPasswordError('Por segurança, faça login novamente no aplicativo antes de alterar sua senha.');
+      } else if (error.code === 'auth/weak-password') {
+        setPasswordError('A senha deve ter entre 8 e 16 caracteres, incluindo uma letra maiúscula e um número.');
+      } else {
+        setPasswordError(error.message || 'Não foi possível alterar a senha. Tente novamente.');
+      }
+    } finally {
+      setIsSavingPassword(false);
+    }
+  };
+
+  const handleSendResetEmail = async () => {
+    if (!user?.email) return;
+    try {
+      setIsSavingPassword(true);
+      await sendPasswordResetEmail(auth, user.email);
+      toast.success(`E-mail enviado para ${user.email}! Verifique sua caixa de entrada para redefinir a senha.`);
+      setIsChangingPassword(false);
+    } catch (error: any) {
+      toast.error('Erro ao enviar e-mail de redefinição de senha.');
+    } finally {
+      setIsSavingPassword(false);
     }
   };
 
@@ -268,6 +348,29 @@ export function SettingsTab() {
               className="text-sm font-semibold text-yellow-500 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-300 cursor-pointer"
             >
               Editar
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-slate-700">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-amber-50 dark:bg-amber-900/30 rounded-full text-amber-600 dark:text-amber-400">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-bold text-gray-900 dark:text-white text-base">Segurança da Senha</h4>
+                <p className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">Alterar ou redefinir senha</p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setNewPassword('');
+                setConfirmPassword('');
+                setPasswordError('');
+                setIsChangingPassword(true);
+              }}
+              className="text-sm font-semibold text-yellow-500 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-300 cursor-pointer"
+            >
+              Alterar
             </button>
           </div>
 
@@ -463,6 +566,160 @@ export function SettingsTab() {
                 Cancelar e Voltar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Alterar Senha com Política de Senha Forte */}
+      {isChangingPassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl relative animate-in zoom-in-95 duration-200">
+            <button 
+              onClick={() => {
+                if (!isSavingPassword) {
+                  setIsChangingPassword(false);
+                  setPasswordError('');
+                }
+              }}
+              disabled={isSavingPassword}
+              className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 bg-gray-50 dark:bg-slate-800 rounded-full transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="p-2.5 bg-amber-50 dark:bg-amber-900/30 rounded-2xl text-amber-600 dark:text-amber-400">
+                <Lock className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold font-serif text-gray-900 dark:text-white">Alterar Senha</h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Defina uma nova senha de segurança</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleUpdatePasswordSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1.5">
+                  Nova Senha
+                </label>
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => {
+                      setNewPassword(e.target.value);
+                      if (passwordError) setPasswordError('');
+                    }}
+                    required
+                    maxLength={16}
+                    placeholder="Digite a nova senha"
+                    className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500 pr-11"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Checklist de Validação em Tempo Real */}
+              <div className="p-3 bg-amber-50/70 dark:bg-slate-800/60 rounded-xl border border-amber-200/60 dark:border-slate-700/60 space-y-1.5 text-xs">
+                <div className="flex items-center gap-1.5 font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-yellow-600 dark:text-yellow-400" />
+                  <span>Requisitos da Política de Senha:</span>
+                </div>
+                
+                <div className="grid grid-cols-1 gap-1 pl-1">
+                  <div className={cn(
+                    "flex items-center gap-1.5 text-[11px] transition-colors",
+                    newPassword.length >= 8 && newPassword.length <= 16 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-gray-500 dark:text-gray-400"
+                  )}>
+                    {newPassword.length >= 8 && newPassword.length <= 16 ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    ) : (
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0 ml-1 mr-1" />
+                    )}
+                    <span>Entre 8 e 16 caracteres {newPassword.length > 0 && `(${newPassword.length}/16)`}</span>
+                  </div>
+
+                  <div className={cn(
+                    "flex items-center gap-1.5 text-[11px] transition-colors",
+                    /[A-Z]/.test(newPassword) ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-gray-500 dark:text-gray-400"
+                  )}>
+                    {/[A-Z]/.test(newPassword) ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    ) : (
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0 ml-1 mr-1" />
+                    )}
+                    <span>Pelo menos 1 letra maiúscula</span>
+                  </div>
+
+                  <div className={cn(
+                    "flex items-center gap-1.5 text-[11px] transition-colors",
+                    /[0-9]/.test(newPassword) ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-gray-500 dark:text-gray-400"
+                  )}>
+                    {/[0-9]/.test(newPassword) ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    ) : (
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0 ml-1 mr-1" />
+                    )}
+                    <span>Pelo menos 1 número</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1.5">
+                  Confirmar Nova Senha
+                </label>
+                <input
+                  type={showNewPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    if (passwordError) setPasswordError('');
+                  }}
+                  required
+                  placeholder="Repita a nova senha"
+                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                />
+              </div>
+
+              {passwordError && (
+                <div className="bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 text-xs p-3 rounded-xl border border-red-100 dark:border-red-900/50 leading-relaxed">
+                  {passwordError}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSavingPassword || !newPassword || !confirmPassword}
+                className="w-full bg-yellow-500 hover:bg-yellow-700 text-white font-semibold py-3.5 rounded-xl transition-all disabled:opacity-50 flex justify-center items-center gap-2 cursor-pointer shadow-md text-sm"
+              >
+                {isSavingPassword ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Atualizando senha...</span>
+                  </>
+                ) : (
+                  'Salvar Nova Senha'
+                )}
+              </button>
+
+              <div className="pt-2 text-center border-t border-gray-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={handleSendResetEmail}
+                  disabled={isSavingPassword}
+                  className="text-xs text-yellow-600 dark:text-yellow-400 hover:underline cursor-pointer"
+                >
+                  Prefere receber um link de redefinição por e-mail?
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

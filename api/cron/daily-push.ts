@@ -3,17 +3,50 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 
-// Initialize Firebase Admin (only once)
+// Initialize Firebase Admin (only once, with multiple credential formats fallback)
 if (!getApps().length) {
   const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const projectId = process.env.FIREBASE_PROJECT_ID || 'devocional-app-63871';
+
   if (serviceAccountKey) {
     try {
-      const serviceAccount = JSON.parse(serviceAccountKey);
+      let parsed: any;
+      if (serviceAccountKey.trim().startsWith('{')) {
+        parsed = JSON.parse(serviceAccountKey);
+      } else {
+        const decoded = Buffer.from(serviceAccountKey, 'base64').toString('utf-8');
+        parsed = JSON.parse(decoded);
+      }
       initializeApp({
-        credential: cert(serviceAccount)
+        credential: cert(parsed)
       });
-    } catch (error) {
-      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY in cron:', error);
+      console.log('[Daily Push] Firebase Admin initialized with serviceAccountKey');
+    } catch (error: any) {
+      console.error('[Daily Push] Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:', error?.message || error);
+    }
+  } else if (privateKey && clientEmail) {
+    try {
+      initializeApp({
+        credential: cert({
+          projectId,
+          clientEmail,
+          privateKey: privateKey.replace(/\\n/g, '\n')
+        })
+      });
+      console.log('[Daily Push] Firebase Admin initialized with individual credentials');
+    } catch (credErr: any) {
+      console.error('[Daily Push] Failed to initialize Firebase Admin with individual credentials:', credErr);
+    }
+  } else {
+    try {
+      initializeApp({
+        projectId
+      });
+      console.log(`[Daily Push] Firebase Admin initialized with default projectId: ${projectId}`);
+    } catch (e: any) {
+      console.warn('[Daily Push] Firebase credentials missing:', e?.message || e);
     }
   }
 }
@@ -236,8 +269,8 @@ export default async function handler(req: Request, res: Response) {
           },
           notification: {
             tag: `daily-push-${todayBrasilia}`,
-            icon: "/rosa.png",
-            badge: "/rosa.png",
+            icon: "/images/rosa.png",
+            badge: "/images/rosa.png",
             renotify: false
           },
           fcmOptions: { 
@@ -308,8 +341,8 @@ export default async function handler(req: Request, res: Response) {
               },
               notification: {
                 tag: `subscription-dunning-${todayBrasilia}`,
-                icon: "/rosa.png",
-                badge: "/rosa.png",
+                icon: "/images/rosa.png",
+                badge: "/images/rosa.png",
                 renotify: true
               },
               fcmOptions: {

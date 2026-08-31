@@ -96,6 +96,20 @@
         { "name": "createdAt", "type": "timestamp" }
       ],
       "description": "Auditable transaction ledger subcollection for user coin earnings and spends under users/{userId}/coin_history."
+    },
+    {
+      "name": "highlights",
+      "documentId": "highlightId",
+      "fields": [
+        { "name": "book", "type": "string" },
+        { "name": "bookName", "type": "string" },
+        { "name": "chapter", "type": "number" },
+        { "name": "verse", "type": "number" },
+        { "name": "color", "type": "string" },
+        { "name": "text", "type": "string" },
+        { "name": "createdAt", "type": "timestamp" }
+      ],
+      "description": "User Bible highlights subcollection under users/{userId}/highlights with color and verse reference."
     }
   ]
 }

@@ -161,6 +161,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             data.unlocked_modules = unlockedList;
             data.unlockedSecretModules = unlockedList;
 
+            // Garante 999.999 moedas para a conta admin principal e administradores
+            const isMainAdmin = data.isAdmin === true || 
+              firebaseUser.email === 'dofekrafael@gmail.com' || 
+              firebaseUser.email === 'sjhonatan916@gmail.com' || 
+              firebaseUser.email === 'floresceremadoracao@gmail.com';
+
+            if (isMainAdmin && (typeof data.coins !== 'number' || data.coins < 999999)) {
+              data.coins = 999999;
+              updateDoc(docRef, {
+                coins: 999999,
+                updatedAt: new Date().toISOString()
+              }).catch(err => console.warn("Could not sync admin coins to firestore:", err));
+            }
+
             setProfile(data);
           }
         }, (error) => {

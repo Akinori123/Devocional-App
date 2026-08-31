@@ -147,7 +147,7 @@ function AppContent() {
       case 'journey':
         return <Journey onChangeTab={handleTabChange} onNavigateToBible={handleNavigateToBible} />;
       case 'profile':
-        return <Profile initialTab={profileSubTab} onChangeTab={handleTabChange} />;
+        return <Profile initialTab={profileSubTab} onChangeTab={handleTabChange} onNavigateToBible={handleNavigateToBible} />;
       case 'videoHistory':
         return <VideoHistory onBack={() => handleTabChange('home')} onGoToPremium={() => handleTabChange('profile', 'subscription')} />;
       case 'usersAdmin':

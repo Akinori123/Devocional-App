@@ -3,7 +3,6 @@ import { BibleBook } from '../../data/bibleBooks';
 import { 
   ArrowLeft, 
   Loader2, 
-  Bookmark, 
   Type, 
   Square, 
   Crown, 
@@ -19,7 +18,9 @@ import {
   BookOpen, 
   Lightbulb, 
   HeartHandshake,
-  Share2
+  Share2,
+  Highlighter,
+  Ban
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -29,6 +30,14 @@ import { collection, doc, setDoc, getDoc, serverTimestamp } from 'firebase/fires
 import { useScrollDirection } from '../../hooks/useScrollDirection';
 import { useToast } from '../../context/ToastContext';
 import { recordApiUsage } from '../../services/apiMetricsService';
+import { 
+  subscribeToChapterHighlights, 
+  saveHighlight, 
+  removeHighlight, 
+  HIGHLIGHT_COLORS, 
+  BibleHighlight, 
+  HighlightColor 
+} from '../../services/bibleHighlightService';
 
 interface BibleReaderProps {
   book: BibleBook;
@@ -95,12 +104,24 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedVerses, setSelectedVerses] = useState<Set<number>>(new Set());
-  const [isSaving, setIsSaving] = useState(false);
+  const [highlights, setHighlights] = useState<Record<number, BibleHighlight>>({});
   const { scrollDirection, isAtTop } = useScrollDirection();
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeVerseIndex, setActiveVerseIndex] = useState<number | null>(null);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  // Escuta os destaques do usuário para o capítulo atual
+  useEffect(() => {
+    if (!user) {
+      setHighlights({});
+      return;
+    }
+    const unsub = subscribeToChapterHighlights(user.uid, book.id, chapter, (loadedHighlights) => {
+      setHighlights(loadedHighlights);
+    });
+    return () => unsub();
+  }, [user?.uid, book.id, chapter]);
 
   // AI Theological Explanation State
   const [isExplaining, setIsExplaining] = useState(false);
@@ -423,10 +444,10 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
         const verseElement = document.getElementById(`verse-${initialVerse}`);
         if (verseElement) {
           verseElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          verseElement.classList.add('bg-yellow-100', 'dark:bg-yellow-900/40');
+          verseElement.classList.add('ring-4', 'ring-yellow-400', 'dark:ring-yellow-500', 'bg-yellow-100', 'dark:bg-yellow-900/50', 'rounded-xl', 'animate-pulse');
           setTimeout(() => {
-            verseElement.classList.remove('bg-yellow-100', 'dark:bg-yellow-900/40');
-          }, 2000);
+            verseElement.classList.remove('ring-4', 'ring-yellow-400', 'dark:ring-yellow-500', 'bg-yellow-100', 'dark:bg-yellow-900/50', 'rounded-xl', 'animate-pulse');
+          }, 2500);
         } else if (retries > 0) {
           setTimeout(() => scrollToVerse(retries - 1), 200);
         }
@@ -486,30 +507,94 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
     }
   };
 
-  const handleSaveVerses = async () => {
-    if (!user || selectedVerses.size === 0) return;
-    
-    setIsSaving(true);
+  const handleApplyHighlight = async (color: HighlightColor) => {
+    if (!user) {
+      toast.info('Faça login para salvar seus destaques.');
+      return;
+    }
+    if (selectedVerses.size === 0) return;
+
+    const selectedVersesList = Array.from(selectedVerses)
+      .sort((a, b) => a - b)
+      .map(verseNum => verses.find(v => v.verse === verseNum)!)
+      .filter(Boolean);
+
+    if (selectedVersesList.length === 0) return;
+
+    // Atualização otimista imediata na UI
+    const updatedHighlights = { ...highlights };
+    selectedVersesList.forEach(v => {
+      updatedHighlights[v.verse] = {
+        id: `${book.id}_c${chapter}_v${v.verse}`,
+        book: book.id,
+        bookName: book.name,
+        chapter,
+        verse: v.verse,
+        color,
+        text: v.text.trim()
+      };
+    });
+    setHighlights(updatedHighlights);
+    setSelectedVerses(new Set());
+
     try {
-      const versesToSave = Array.from(selectedVerses).map(verseNum => verses.find(v => v.verse === verseNum)!);
-      
-      const reference = `${book.name} ${chapter}:${versesToSave.map(v => v.verse).join(', ')}`;
-      const text = versesToSave.map(v => v.text.trim()).join(' ');
-
-      const verseRef = doc(collection(db, 'users', user.uid, 'savedVerses'));
-      await setDoc(verseRef, {
-        reference,
-        text,
-        createdAt: serverTimestamp()
-      });
-
-      setSelectedVerses(new Set());
-      toast.success('Mensagem guardada com segurança! ✅');
+      await Promise.all(
+        selectedVersesList.map(v => 
+          saveHighlight(user.uid, book.id, book.name, chapter, v.verse, color, v.text.trim())
+        )
+      );
+      toast.success('Versículo destacado! ✨');
     } catch (err) {
-      console.error("Error saving verses:", err);
-      toast.error('Erro ao salvar versículos. Tente novamente.');
-    } finally {
-      setIsSaving(false);
+      console.error('Error saving highlight:', err);
+      toast.error('Não foi possível salvar o destaque no banco de dados.');
+    }
+  };
+
+  const handleRemoveHighlight = async () => {
+    if (!user || selectedVerses.size === 0) return;
+
+    const selectedVersesList = Array.from(selectedVerses);
+
+    // Atualização otimista imediata na UI
+    const updatedHighlights = { ...highlights };
+    selectedVersesList.forEach(vNum => {
+      delete updatedHighlights[vNum];
+    });
+    setHighlights(updatedHighlights);
+    setSelectedVerses(new Set());
+
+    try {
+      await Promise.all(
+        selectedVersesList.map(vNum => 
+          removeHighlight(user.uid, book.id, chapter, vNum)
+        )
+      );
+      toast.success('Destaque removido.');
+    } catch (err) {
+      console.error('Error removing highlight:', err);
+      toast.error('Não foi possível remover o destaque.');
+    }
+  };
+
+  const handleCopySelectedVerses = async () => {
+    if (selectedVerses.size === 0) return;
+    
+    const selectedVersesList = Array.from(selectedVerses)
+      .sort((a, b) => a - b)
+      .map(verseNum => verses.find(v => v.verse === verseNum)!)
+      .filter(Boolean);
+
+    if (selectedVersesList.length === 0) return;
+
+    const reference = `${book.name} ${chapter}:${selectedVersesList.map(v => v.verse).join(', ')}`;
+    const text = selectedVersesList.map(v => `[${v.verse}] ${v.text.trim()}`).join(' ');
+    const fullContent = `"${text}" - ${reference} (Florescer Devocional)`;
+
+    try {
+      await navigator.clipboard.writeText(fullContent);
+      toast.success('Copiado para a área de transferência! 📋');
+    } catch (e) {
+      toast.error('Não foi possível copiar o texto.');
     }
   };
 
@@ -848,20 +933,6 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
             {!hasAccess && <Crown className="w-3 h-3 text-amber-500 dark:text-amber-400" />}
           </button>
           
-          {selectedVerses.size > 0 && (
-            <button 
-              onClick={handleSaveVerses}
-              disabled={isSaving}
-              className="hidden xs:flex items-center gap-1 text-xs font-semibold text-yellow-700 bg-yellow-100 dark:bg-yellow-900/40 dark:text-yellow-300 px-2.5 sm:px-3 py-1.5 rounded-full hover:bg-yellow-200 dark:hover:bg-yellow-900/60 transition-colors disabled:opacity-50 active:scale-95"
-            >
-              {isSaving ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Bookmark className="w-3.5 h-3.5 fill-current" />
-              )}
-              <span>Guardar</span>
-            </button>
-          )}
           <button 
             onClick={cycleFontSize}
             className="p-2 text-gray-600 dark:text-gray-300 hover:text-yellow-600 dark:hover:text-yellow-400 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
@@ -888,10 +959,12 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
 
         {!loading && !error && (
           <>
-            <div className={cn("space-y-2 transition-all duration-200", getFontSizeClass())}>
+            <div className={cn("space-y-2.5 transition-all duration-200", getFontSizeClass())}>
               {verses.map((verse, idx) => {
                 const isSelected = selectedVerses.has(verse.verse);
                 const isSpeakingCurrent = activeVerseIndex === idx;
+                const highlight = highlights[verse.verse];
+                const colorConfig = highlight ? HIGHLIGHT_COLORS.find(c => c.id === highlight.color) : null;
 
                 return (
                   <div
@@ -899,27 +972,36 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
                     id={`verse-${verse.verse}`}
                     onClick={() => toggleVerseSelection(verse.verse)}
                     className={cn(
-                      "cursor-pointer rounded-xl p-2.5 transition-all duration-200 relative select-none",
+                      "cursor-pointer rounded-xl p-3 transition-all duration-200 relative select-none",
                       isSpeakingCurrent
                         ? "bg-yellow-100 dark:bg-yellow-950/70 border-l-4 border-yellow-500 shadow-xs"
                         : isSelected 
-                          ? "bg-yellow-50 dark:bg-yellow-900/40 border border-yellow-200/60 dark:border-yellow-800/40 shadow-xs" 
-                          : "hover:bg-gray-100/80 dark:hover:bg-slate-800/60"
+                          ? "bg-yellow-50 dark:bg-yellow-900/40 border border-yellow-300 dark:border-yellow-700 ring-2 ring-yellow-400/50 shadow-xs" 
+                          : colorConfig
+                            ? cn(colorConfig.colorClass, "border-l-4", colorConfig.borderClass, "shadow-xs")
+                            : "hover:bg-gray-100/80 dark:hover:bg-slate-800/60"
                     )}
                   >
-                    <p className="text-gray-800 dark:text-gray-200 leading-relaxed font-serif transition-colors duration-200">
+                    <p className={cn(
+                      "leading-relaxed font-serif transition-colors duration-200",
+                      colorConfig ? cn("font-bold", colorConfig.textClass) : "text-gray-800 dark:text-gray-200"
+                    )}>
                       <sup className={cn(
                         "font-sans font-bold text-xs mr-2 relative -top-1 transition-colors duration-200 select-none",
                         isSpeakingCurrent
                           ? "text-yellow-700 dark:text-yellow-400 font-extrabold text-sm"
-                          : isSelected ? "text-yellow-600 dark:text-yellow-400" : "text-gray-400 dark:text-gray-500"
+                          : isSelected 
+                            ? "text-yellow-600 dark:text-yellow-400 font-bold" 
+                            : colorConfig
+                              ? "text-gray-700 dark:text-gray-300 font-bold"
+                              : "text-gray-400 dark:text-gray-500"
                       )}>
                         {verse.verse}
                       </sup>
                       <span className={cn(
-                        isSpeakingCurrent 
-                          ? "text-yellow-950 dark:text-yellow-100 font-medium" 
-                          : isSelected && "text-yellow-900 dark:text-yellow-200 font-medium"
+                        isSpeakingCurrent && "text-yellow-950 dark:text-yellow-100 font-medium",
+                        isSelected && !colorConfig && "text-yellow-900 dark:text-yellow-200 font-medium",
+                        colorConfig && "font-bold"
                       )}>
                         {verse.text.trim()}
                       </span>
@@ -935,7 +1017,7 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
                 {chapter > 1 ? (
                   <button
                     onClick={() => handleNavigateChapter(chapter - 1)}
-                    className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 active:scale-95 transition-all shadow-xs"
+                    className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 active:scale-95 transition-all shadow-xs cursor-pointer"
                   >
                     <ChevronLeft className="w-4 h-4" />
                     <span>Capítulo {chapter - 1}</span>
@@ -951,7 +1033,7 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
                 {chapter < book.chapters ? (
                   <button
                     onClick={() => handleNavigateChapter(chapter + 1)}
-                    className="flex items-center gap-1.5 px-3.5 sm:px-5 py-2.5 rounded-xl bg-yellow-500 hover:bg-yellow-600 active:scale-95 text-white text-xs sm:text-sm font-semibold transition-all shadow-md shadow-yellow-500/20"
+                    className="flex items-center gap-1.5 px-3.5 sm:px-5 py-2.5 rounded-xl bg-yellow-500 hover:bg-yellow-600 active:scale-95 text-white text-xs sm:text-sm font-semibold transition-all shadow-md shadow-yellow-500/20 cursor-pointer"
                   >
                     <span>Capítulo {chapter + 1}</span>
                     <ChevronRight className="w-4 h-4" />
@@ -969,51 +1051,113 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
         )}
       </div>
 
-      {/* Floating Bottom Action Bar for Selected Verses */}
+      {/* Floating Toolbar estilo YouVersion para Versículos Selecionados */}
       {selectedVerses.size > 0 && (
-        <div className="fixed bottom-20 sm:bottom-8 left-0 right-0 z-50 px-4 pointer-events-none flex justify-center animate-in fade-in slide-in-from-bottom-5 duration-300">
-          <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur-md px-3.5 py-2.5 rounded-2xl shadow-2xl border border-yellow-200/80 dark:border-slate-700 pointer-events-auto flex items-center gap-2 max-w-md w-full justify-between">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-xs font-bold text-gray-800 dark:text-gray-200 truncate">
-                {selectedVerses.size} {selectedVerses.size === 1 ? 'versículo' : 'versículos'}
-              </span>
+        <div className="fixed bottom-20 sm:bottom-8 left-0 right-0 z-50 px-3 sm:px-4 pointer-events-none flex justify-center animate-in fade-in slide-in-from-bottom-5 duration-300">
+          <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-3 sm:p-3.5 rounded-3xl shadow-2xl border border-yellow-300/60 dark:border-slate-700 pointer-events-auto flex flex-col gap-2.5 max-w-lg w-full">
+            
+            {/* Linha Superior: Marca-Texto / Paleta de Cores */}
+            <div className="flex items-center justify-between gap-2 pb-2 border-b border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700 dark:text-gray-300">
+                <Highlighter className="w-4 h-4 text-yellow-600 dark:text-yellow-400 shrink-0" />
+                <span className="truncate">
+                  {selectedVerses.size} {selectedVerses.size === 1 ? 'versículo' : 'versículos'}
+                </span>
+              </div>
+
+              {/* Bolinhas de Cores do Marca-Texto */}
+              <div 
+                className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none flex-nowrap py-1 max-w-[220px] xs:max-w-[280px] sm:max-w-none touch-pan-x select-none"
+                onMouseDown={(e) => {
+                  const container = e.currentTarget;
+                  let startX = e.pageX - container.offsetLeft;
+                  let scrollLeft = container.scrollLeft;
+                  let isDown = true;
+
+                  const onMouseMove = (moveEvent: MouseEvent) => {
+                    if (!isDown) return;
+                    moveEvent.preventDefault();
+                    const x = moveEvent.pageX - container.offsetLeft;
+                    const walk = (x - startX) * 1.5;
+                    container.scrollLeft = scrollLeft - walk;
+                  };
+
+                  const onMouseUp = () => {
+                    isDown = false;
+                    window.removeEventListener('mousemove', onMouseMove);
+                    window.removeEventListener('mouseup', onMouseUp);
+                  };
+
+                  window.addEventListener('mousemove', onMouseMove);
+                  window.addEventListener('mouseup', onMouseUp);
+                }}
+              >
+                {HIGHLIGHT_COLORS.map(colorItem => (
+                  <button
+                    key={colorItem.id}
+                    onClick={() => handleApplyHighlight(colorItem.id)}
+                    className={cn(
+                      "w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full transition-transform active:scale-90 hover:scale-110 shadow-xs border-2 border-white dark:border-slate-800 flex items-center justify-center cursor-pointer shrink-0",
+                      colorItem.dotClass
+                    )}
+                    title={`Destacar em ${colorItem.label}`}
+                  >
+                    <span className="sr-only">{colorItem.label}</span>
+                  </button>
+                ))}
+
+                {/* Botão de Remover Marcação */}
+                {Array.from(selectedVerses).some(vNum => !!highlights[vNum]) && (
+                  <button
+                    onClick={handleRemoveHighlight}
+                    className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full bg-gray-100 hover:bg-red-100 dark:bg-slate-800 dark:hover:bg-red-950/60 text-gray-400 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-all flex items-center justify-center cursor-pointer border border-gray-200 dark:border-slate-700 shrink-0"
+                    title="Remover destaque"
+                  >
+                    <Ban className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Botão: Explicar com IA (Teólogo Particular) */}
-              <button
-                onClick={handleExplainWithAI}
-                disabled={isExplaining}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white text-xs font-bold shadow-md shadow-amber-500/20 active:scale-95 transition-all disabled:opacity-60"
-              >
-                {isExplaining ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Brain className="w-4 h-4" />
-                )}
-                <span>Explicar com IA</span>
-                {!hasAccess && <Crown className="w-3.5 h-3.5 text-yellow-200 ml-0.5" />}
-              </button>
+            {/* Linha Inferior: Ações Rápidas (IA, Copiar, Fechar) */}
+            <div className="flex items-center justify-between gap-1.5 sm:gap-2">
+              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                {/* Botão: Explicar com IA (Teólogo Particular) */}
+                <button
+                  onClick={handleExplainWithAI}
+                  disabled={isExplaining}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white text-xs font-bold shadow-md shadow-amber-500/20 active:scale-95 transition-all disabled:opacity-60 cursor-pointer flex-1 sm:flex-initial"
+                >
+                  {isExplaining ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  ) : (
+                    <Brain className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span className="truncate">Explicar com IA</span>
+                  {!hasAccess && <Crown className="w-3 h-3 text-yellow-200 shrink-0 ml-0.5" />}
+                </button>
 
-              {/* Botão: Guardar */}
-              <button
-                onClick={handleSaveVerses}
-                disabled={isSaving}
-                className="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-200 active:scale-95 transition-colors"
-                title="Guardar versículo"
-              >
-                {isSaving ? <Loader2 className="w-4 h-4 animate-spin text-yellow-600" /> : <Bookmark className="w-4 h-4" />}
-              </button>
+                {/* Botão: Copiar */}
+                <button
+                  onClick={handleCopySelectedVerses}
+                  className="flex items-center gap-1 px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-200 text-xs font-semibold active:scale-95 transition-colors cursor-pointer"
+                  title="Copiar versículo selecionado"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copiar</span>
+                </button>
+              </div>
 
               {/* Botão: Limpar Seleção */}
               <button
                 onClick={() => setSelectedVerses(new Set())}
-                className="p-2 rounded-xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                className="p-2 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
                 title="Limpar seleção"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
           </div>
         </div>
       )}

@@ -69,3 +69,17 @@ export interface Note {
   createdAt: number;
 }
 
+export type HighlightColor = 'yellow' | 'orange' | 'red' | 'pink' | 'purple' | 'blue' | 'teal' | 'green';
+
+export interface BibleHighlight {
+  id: string;
+  book: string;
+  bookName?: string;
+  chapter: number;
+  verse: number;
+  color: HighlightColor;
+  text?: string;
+  updatedAt?: any;
+  createdAt?: any;
+}
+

@@ -397,10 +397,10 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
                           {cardTitle}
                         </h3>
 
-                        {/* Linha 2: Rodapé do Card (Badges, Compartilhar e Progresso) */}
-                        <div className="flex items-center justify-between gap-2 mt-2">
+                        {/* Linha 2 (Rodapé do Card): Ícone de compartilhar, moedas e progresso alinhados */}
+                        <div className="flex items-center justify-between gap-3 mt-2">
                           <div className="flex items-center gap-2 shrink-0">
-                            {/* Badges de Visibilidade */}
+                            {/* Badges de Visibilidade / Moedas */}
                             {isSecretLocked && (
                               <span className="bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-700/60 shrink-0 flex items-center gap-1">
                                 <CoinIcon className="w-3.5 h-3.5" /> {coinCost}
@@ -413,16 +413,17 @@ export function JourneyList({ onSelectDevotional, onCreateNew, onChangeTab }: Jo
                             )}
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0 ml-auto">
+                          <div className="flex items-center gap-3 shrink-0 ml-auto">
                             {/* Botão de Compartilhar Link */}
                             <button
                               onClick={(e) => handleShareJourney(theme, e)}
-                              className="p-1 text-gray-400 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                              className="p-1 text-gray-400 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
                               title="Compartilhar esta jornada (Deep Link)"
                             >
                               <Share2 className="w-3.5 h-3.5" />
                             </button>
 
+                            {/* Tag de Progresso */}
                             <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
                               isAllModuleCompleted
                                 ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'

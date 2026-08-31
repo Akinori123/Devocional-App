@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UserPlus, LogIn, Heart, Star, Sprout, Navigation, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { UserPlus, LogIn, Heart, Star, Sprout, Navigation, ArrowRight, Eye, EyeOff, Check, X as XIcon, ShieldCheck } from 'lucide-react';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword,
@@ -11,6 +11,7 @@ import { auth, db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
 import { useToast } from '../context/ToastContext';
+import { validatePassword } from '../utils/validation';
 
 type Step = 'welcome' | 'name' | 'journey' | 'need' | 'seed' | 'auth';
 
@@ -65,6 +66,14 @@ export function Onboarding() {
       if (isLogin) {
         await signInWithEmailAndPassword(auth, email, password);
       } else {
+        // Validação rigorosa de senha no cadastro
+        const validation = validatePassword(password);
+        if (!validation.isValid) {
+          setError(validation.message || 'A senha deve ter entre 8 e 16 caracteres, incluindo uma letra maiúscula e um número.');
+          setLoading(false);
+          return;
+        }
+
         const userCred = await createUserWithEmailAndPassword(auth, email, password);
         const userProfile = { 
           email: userCred.user.email,
@@ -86,7 +95,15 @@ export function Onboarding() {
         toast.success("Conta criada! Verifique sua caixa de entrada para confirmar seu e-mail.");
       }
     } catch (err: any) {
-      setError(err.message || 'Ocorreu um erro.');
+      if (err.code === 'auth/weak-password') {
+        setError('A senha deve ter entre 8 e 16 caracteres, incluindo uma letra maiúscula e um número.');
+      } else if (err.code === 'auth/email-already-in-use') {
+        setError('Este e-mail já está cadastrado. Faça login ou recupere sua senha.');
+      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        setError('E-mail ou senha incorretos. Verifique seus dados.');
+      } else {
+        setError(err.message || 'Ocorreu um erro ao processar sua solicitação.');
+      }
     } finally {
       setLoading(false);
     }
@@ -296,10 +313,14 @@ export function Onboarding() {
             <input 
               type={showPassword ? "text" : "password"} 
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (error) setError('');
+              }}
               required
-              minLength={6}
-              className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-yellow-500 shadow-sm pr-12"
+              maxLength={isLogin ? undefined : 16}
+              className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-yellow-500 shadow-sm pr-12 text-sm"
+              placeholder={isLogin ? "Sua senha" : "Crie uma senha forte"}
             />
             <button
               type="button"
@@ -309,6 +330,55 @@ export function Onboarding() {
               {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
             </button>
           </div>
+
+          {/* Requisitos de Senha Forte (Exclusivo para Cadastro) */}
+          {!isLogin && (
+            <div className="mt-2.5 p-3 bg-amber-50/70 dark:bg-slate-800/60 rounded-xl border border-amber-200/60 dark:border-slate-700/60 space-y-1.5 text-xs">
+              <div className="flex items-center gap-1.5 font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                <ShieldCheck className="w-3.5 h-3.5 text-yellow-600 dark:text-yellow-400" />
+                <span>Requisitos de Segurança da Senha:</span>
+              </div>
+              
+              <div className="grid grid-cols-1 gap-1 pl-1">
+                <div className={cn(
+                  "flex items-center gap-1.5 text-[11px] transition-colors",
+                  password.length >= 8 && password.length <= 16 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-gray-500 dark:text-gray-400"
+                )}>
+                  {password.length >= 8 && password.length <= 16 ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                  ) : (
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0 ml-1 mr-1" />
+                  )}
+                  <span>Entre 8 e 16 caracteres {password.length > 0 && `(${password.length}/16)`}</span>
+                </div>
+
+                <div className={cn(
+                  "flex items-center gap-1.5 text-[11px] transition-colors",
+                  /[A-Z]/.test(password) ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-gray-500 dark:text-gray-400"
+                )}>
+                  {/[A-Z]/.test(password) ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                  ) : (
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0 ml-1 mr-1" />
+                  )}
+                  <span>Pelo menos 1 letra maiúscula</span>
+                </div>
+
+                <div className={cn(
+                  "flex items-center gap-1.5 text-[11px] transition-colors",
+                  /[0-9]/.test(password) ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-gray-500 dark:text-gray-400"
+                )}>
+                  {/[0-9]/.test(password) ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                  ) : (
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0 ml-1 mr-1" />
+                  )}
+                  <span>Pelo menos 1 número</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {isLogin && (
             <div className="flex justify-end mt-2">
               <button
