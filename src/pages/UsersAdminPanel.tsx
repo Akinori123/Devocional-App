@@ -78,9 +78,9 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
           return;
         }
       }
-      const res = await registerDeviceFcmToken(user.uid);
-      if (res.success) {
-        toast.success('Dispositivo sincronizado! Token salvo no Firestore.');
+      const res = await registerDeviceFcmToken(user.uid, user.email || undefined);
+      if (res.success && res.token) {
+        toast.success(`Dispositivo sincronizado! Token (${res.token.substring(0, 10)}...) salvo no Firestore.`);
         await loadUsers();
       } else {
         toast.error(`Falha ao registrar token: ${res.error || 'Desconhecido'}`);
@@ -104,18 +104,20 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
           planName: "Assinatura VIP Florescer (Teste)",
           customerName: user?.displayName || "Assinante Exemplo",
           customerEmail: user?.email || "dofekrafael@gmail.com",
+          userId: user?.uid,
           paymentMethod: "PIX"
         })
       });
       const data = await res.json();
       if (data.success) {
+        const recipients = data.result?.recipientsCount || 0;
         const pushStatus = data.result?.pushSent 
-          ? `Push Enviado (${data.result?.recipientsCount || 1} dispositivo(s)) ✅` 
-          : '⚠️ Push: Nenhum token de admin ativo (clique em Sincronizar Aparelho)';
+          ? `Push Enviado (${recipients} dispositivo(s)) ✅` 
+          : (recipients > 0 ? '⚠️ Falha no envio do Push' : '⚠️ Push: Nenhum token de admin ativo (clique em Sincronizar)');
         const emailStatus = data.result?.emailSent ? 'E-mail Enviado ✅' : 'E-mail registrado';
-        toast.success(`Alerta Hotmart disparado! ${pushStatus} | ${emailStatus}`);
+        toast.success(`Alerta de Venda disparado! ${pushStatus} | ${emailStatus}`);
       } else {
-        toast.error('Erro ao disparar teste de alerta.');
+        toast.error(`Erro ao disparar teste: ${data.error || 'Falha'}`);
       }
     } catch (err) {
       console.error(err);

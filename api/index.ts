@@ -170,6 +170,24 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
   const adminFcmTokens = new Set<string>();
 
   try {
+    // 1. Direct check if userId was provided
+    if (userId) {
+      const directUserDoc = await firestore.collection("users").doc(userId).get();
+      if (directUserDoc.exists) {
+        const data = directUserDoc.data() || {};
+        if (data.email) adminEmailsSet.add(data.email);
+        if (typeof data.fcmToken === 'string' && data.fcmToken.trim().length > 10) {
+          adminFcmTokens.add(data.fcmToken.trim());
+        }
+        if (Array.isArray(data.fcmTokens)) {
+          data.fcmTokens.forEach((t: any) => {
+            if (typeof t === 'string' && t.trim().length > 10) adminFcmTokens.add(t.trim());
+          });
+        }
+      }
+    }
+
+    // 2. Query users where isAdmin == true
     const adminsSnapshot = await firestore.collection("users").where("isAdmin", "==", true).get();
     adminsSnapshot.forEach(doc => {
       const data = doc.data();
@@ -184,6 +202,7 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
       }
     });
 
+    // 3. Query users by known admin emails
     for (const email of Array.from(adminEmailsSet)) {
       const userByEmailSnap = await firestore.collection("users").where("email", "==", email).get();
       userByEmailSnap.forEach(doc => {
@@ -197,12 +216,60 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
           });
         }
       });
+
+      // Lowercase check
+      if (email !== email.toLowerCase()) {
+        const userByLowerSnap = await firestore.collection("users").where("email", "==", email.toLowerCase()).get();
+        userByLowerSnap.forEach(doc => {
+          const data = doc.data();
+          if (typeof data.fcmToken === 'string' && data.fcmToken.trim().length > 10) {
+            adminFcmTokens.add(data.fcmToken.trim());
+          }
+          if (Array.isArray(data.fcmTokens)) {
+            data.fcmTokens.forEach((t: any) => {
+              if (typeof t === 'string' && t.trim().length > 10) adminFcmTokens.add(t.trim());
+            });
+          }
+        });
+      }
+    }
+
+    // 4. Fallback scan if still 0 tokens: scan users collection to ensure no admin is missed
+    if (adminFcmTokens.size === 0) {
+      console.log('[Admin Sale Alert] Scanning users collection for admin tokens...');
+      const allUsersSnap = await firestore.collection("users").limit(100).get();
+      const lowerAdminEmails = Array.from(adminEmailsSet).map(e => e.toLowerCase().trim());
+
+      allUsersSnap.forEach(doc => {
+        const data = doc.data() || {};
+        const userEmailLower = (data.email || '').toLowerCase().trim();
+        const isMatchedAdmin = data.isAdmin === true || lowerAdminEmails.includes(userEmailLower);
+
+        if (isMatchedAdmin) {
+          if (typeof data.fcmToken === 'string' && data.fcmToken.trim().length > 10) {
+            adminFcmTokens.add(data.fcmToken.trim());
+          }
+          if (Array.isArray(data.fcmTokens)) {
+            data.fcmTokens.forEach((t: any) => {
+              if (typeof t === 'string' && t.trim().length > 10) adminFcmTokens.add(t.trim());
+            });
+          }
+        }
+      });
     }
   } catch (fetchErr) {
     console.error('[Admin Sale Alert] Error fetching admin tokens:', fetchErr);
   }
 
   const tokensList = Array.from(adminFcmTokens);
+  console.log('Tokens encontrados no BD:', tokensList);
+
+  if (tokensList.length === 0) {
+    console.warn('[Admin Sale Alert] ⚠️ NENHUM token FCM encontrado no Firestore! Admin emails procurados:', Array.from(adminEmailsSet));
+  } else {
+    console.log(`[Admin Sale Alert] ✅ ${tokensList.length} token(s) FCM ativo(s) pronto(s) para disparo.`);
+  }
+
   let pushSent = false;
   const fcmDetails: any = {
     tokensFound: tokensList.length,
@@ -217,7 +284,7 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
       const pushTitle = `🎉 Nova Venda! Assinatura confirmada no valor de ${amountFormatted}`;
       const pushBody = `Cliente: ${customerDisplayName} (${customerEmail || 'E-mail não informado'})\nPlano: ${planName} | Método: ${paymentMethodLabel}`;
 
-      console.log(`[Admin Sale Alert] Target admin tokens found: ${tokensList.length} device(s). Admin Emails: ${Array.from(adminEmailsSet).join(', ')}`);
+      console.log(`[Admin Sale Alert] Disparando Push para ${tokensList.length} dispositivo(s). Admin Emails: ${Array.from(adminEmailsSet).join(', ')}`);
       tokensList.forEach((tok, idx) => {
         console.log(`[Admin Sale Alert] Device [${idx + 1}/${tokensList.length}] token prefix: ${tok.substring(0, 16)}...${tok.substring(tok.length - 8)}`);
       });
@@ -1089,6 +1156,61 @@ app.post("/api/mercadopago/webhook", handleMercadoPagoWebhook);
 app.get("/api/webhook/mercadopago", (req, res) => res.status(200).json({ status: "ok", message: "Mercado Pago Webhook endpoint is live and ready" }));
 app.get("/api/mercadopago/webhook", (req, res) => res.status(200).json({ status: "ok", message: "Mercado Pago Webhook endpoint is live" }));
 
+// Endpoint para salvar token FCM de Administrador/Dispositivo diretamente no Firestore via Admin SDK
+app.post("/api/admin/save-token", async (req, res) => {
+  try {
+    const { userId, token, userEmail, platform } = req.body || {};
+    if (!token || typeof token !== 'string' || token.trim().length < 10) {
+      return res.status(400).json({ error: "Token FCM inválido ou vazio" });
+    }
+
+    const cleanToken = token.trim();
+    console.log(`[Admin Save Token] Recebido token do cliente. UserId: ${userId || 'N/A'}, Email: ${userEmail || 'N/A'}, Token: ${cleanToken.substring(0, 16)}...`);
+
+    const firestore = getFirestore();
+    if (userId) {
+      const userRef = firestore.collection("users").doc(userId);
+      const userDoc = await userRef.get();
+      let currentTokens: string[] = [];
+      let isAdmin = false;
+
+      if (userDoc.exists) {
+        const data = userDoc.data() || {};
+        if (Array.isArray(data.fcmTokens)) {
+          currentTokens = data.fcmTokens.filter((t: any) => typeof t === 'string' && t.trim().length > 10 && t !== cleanToken);
+        }
+        if (data.isAdmin === true) isAdmin = true;
+      }
+
+      const normalizedEmail = (userEmail || userDoc.data()?.email || '').toLowerCase().trim();
+      const lowerAdminEmails = DEFAULT_ADMIN_EMAILS.map(e => e.toLowerCase().trim());
+      if (lowerAdminEmails.includes(normalizedEmail)) {
+        isAdmin = true;
+      }
+
+      const updatedTokens = [...currentTokens.slice(-4), cleanToken];
+      await userRef.set({
+        fcmTokens: updatedTokens,
+        fcmToken: cleanToken,
+        fcmTokenUpdatedAt: new Date().toISOString(),
+        fcmPlatform: platform || 'Web/PWA',
+        ...(isAdmin ? { isAdmin: true } : {})
+      }, { merge: true });
+
+      console.log(`[Admin Save Token] ✅ Token gravado com sucesso no Firestore para UID: ${userId} (isAdmin: ${isAdmin}, total tokens: ${updatedTokens.length})`);
+    }
+
+    res.json({
+      success: true,
+      message: "Token sincronizado com sucesso no Firestore e Servidor",
+      tokenPrefix: cleanToken.substring(0, 16) + '...'
+    });
+  } catch (err: any) {
+    console.error("[Admin Save Token] Erro ao gravar token:", err);
+    res.status(500).json({ error: err?.message || "Falha ao gravar token no banco" });
+  }
+});
+
 // Endpoint para testar o alerta de vendas estilo Hotmart (Push + E-mail)
 app.post("/api/admin/test-sale-alert", async (req, res) => {
   try {
@@ -1097,6 +1219,7 @@ app.post("/api/admin/test-sale-alert", async (req, res) => {
       planName = "Passe VIP 30 Dias (PIX)", 
       customerName = "Cliente Teste", 
       customerEmail = "teste@exemplo.com",
+      userId,
       paymentMethod = "PIX"
     } = req.body || {};
     
@@ -1108,6 +1231,7 @@ app.post("/api/admin/test-sale-alert", async (req, res) => {
       amount: Number(amount),
       customerName,
       customerEmail,
+      userId,
       paymentMethod
     });
 
