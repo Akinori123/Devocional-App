@@ -17,7 +17,8 @@ import {
   Check,
   ShieldCheck,
   Eye,
-  EyeOff
+  EyeOff,
+  Smartphone
 } from 'lucide-react';
 import { db, auth } from '../../lib/firebase';
 import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
@@ -25,6 +26,7 @@ import { deleteUser, updatePassword, sendPasswordResetEmail } from 'firebase/aut
 import { useToast } from '../../context/ToastContext';
 import { usePushNotifications } from '../../hooks/usePushNotifications';
 import { validatePassword } from '../../utils/validation';
+import { registerDeviceFcmToken } from '../../services/fcmRegistration';
 import { cn } from '../../lib/utils';
 
 export function SettingsTab() {
@@ -34,6 +36,24 @@ export function SettingsTab() {
   
   const { permission, isSupported, loading: pushLoading, isSubscribed, toggleSubscription } = usePushNotifications();
   const [showPushModal, setShowPushModal] = useState(false);
+  const [syncingPushDevice, setSyncingPushDevice] = useState(false);
+
+  const handleSyncPushDevice = async () => {
+    if (!user?.uid) return;
+    setSyncingPushDevice(true);
+    try {
+      const res = await registerDeviceFcmToken(user.uid, user.email || undefined);
+      if (res.success) {
+        toast.success("Aparelho sincronizado com sucesso para notificações!");
+      } else {
+        toast.error(res.error || "Não foi possível sincronizar o aparelho.");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao sincronizar aparelho.");
+    } finally {
+      setSyncingPushDevice(false);
+    }
+  };
 
   // Auto-close permission denied modal when permission becomes granted
   useEffect(() => {
@@ -321,6 +341,29 @@ export function SettingsTab() {
               </span>
             </button>
           </div>
+
+          {isSubscribed && (
+            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-slate-700 flex items-center justify-between">
+              <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5 text-gray-400" />
+                Sincronização do Aparelho
+              </span>
+              <button
+                onClick={handleSyncPushDevice}
+                disabled={syncingPushDevice}
+                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-50"
+              >
+                {syncingPushDevice ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>Sincronizando...</span>
+                  </>
+                ) : (
+                  <span>Atualizar Token</span>
+                )}
+              </button>
+            </div>
+          )}
         </section>
       )}
 

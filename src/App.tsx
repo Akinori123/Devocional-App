@@ -32,15 +32,39 @@ function AppContent() {
   const { allDevotionals, setActiveDevotional } = useDevotionals();
   const handledDeepLinkRef = useRef(false);
 
-  // Auto-sync Push FCM Token on app boot if permission is granted
+  // Auto-sync Push FCM Token silently on app boot and tab focus/visibility
   useEffect(() => {
     if (!user?.uid) return;
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-      registerDeviceFcmToken(user.uid).catch((err) => {
-        console.debug('FCM auto-sync in background:', err);
-      });
-    }
-  }, [user?.uid]);
+
+    const performAutoSync = () => {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        const storedPref = localStorage.getItem('pushEnabled');
+        if (storedPref !== 'false') {
+          registerDeviceFcmToken(user.uid, user.email || profile?.email || undefined).catch((err) => {
+            console.debug('[Auto-Sync Push] Background sync notice:', err);
+          });
+        }
+      }
+    };
+
+    // 1. Run immediately on user login / app boot
+    performAutoSync();
+
+    // 2. Run whenever user returns to the app tab/PWA window
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        performAutoSync();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', performAutoSync);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', performAutoSync);
+    };
+  }, [user?.uid, user?.email, profile?.email]);
 
   const handleTabChange = useCallback((tab: TabType, subTab?: 'diary' | 'verses' | 'videos' | 'subscription' | 'settings' | 'admin') => {
     if (tab === 'profile') {
