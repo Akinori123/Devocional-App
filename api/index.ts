@@ -1155,6 +1155,111 @@ app.post("/api/mercadopago/webhook", handleMercadoPagoWebhook);
 app.get("/api/webhook/mercadopago", (req, res) => res.status(200).json({ status: "ok", message: "Mercado Pago Webhook endpoint is live and ready" }));
 app.get("/api/mercadopago/webhook", (req, res) => res.status(200).json({ status: "ok", message: "Mercado Pago Webhook endpoint is live" }));
 
+// Endpoint para Listagem de Usuários no Painel Administrativo com Auto-Recuperação de E-mails via Firebase Auth (Data Patch)
+app.get("/api/admin/users", async (req, res) => {
+  try {
+    if (!getApps().length) {
+      return res.status(500).json({ error: "Firebase Admin não inicializado" });
+    }
+
+    const firestore = getFirestore();
+    const auth = getAuth();
+
+    // 1. Buscar todos os documentos de usuários no Firestore
+    const usersSnapshot = await firestore.collection("users").get();
+    
+    // 2. Buscar mapa de usuários do Firebase Auth para recuperação em lote rápida
+    const authUsersMap = new Map<string, any>();
+    try {
+      let pageToken: string | undefined = undefined;
+      do {
+        const listResult = await auth.listUsers(1000, pageToken);
+        listResult.users.forEach(u => {
+          authUsersMap.set(u.uid, u);
+          if (u.email) {
+            authUsersMap.set(u.email.toLowerCase(), u);
+          }
+        });
+        pageToken = listResult.pageToken;
+      } while (pageToken);
+    } catch (authListErr) {
+      console.warn("[Admin Users API] Note on auth.listUsers batch fetch:", authListErr);
+    }
+
+    let patchedCount = 0;
+    const usersList: any[] = [];
+
+    for (const docSnap of usersSnapshot.docs) {
+      const data = docSnap.data() || {};
+      const userId = docSnap.id;
+      let email = typeof data.email === 'string' && data.email.trim() ? data.email.trim() : '';
+
+      // Se o e-mail não estiver presente no documento do Firestore, tenta recuperar do Firebase Auth
+      if (!email || email === 'Sem E-mail (Antigo)') {
+        let authUser = authUsersMap.get(userId);
+        
+        // Se não estava no cache em lote, faz uma consulta direta por UID
+        if (!authUser) {
+          try {
+            authUser = await auth.getUser(userId);
+          } catch (getErr) {
+            // Usuário não existe no Auth ou erro de consulta
+          }
+        }
+
+        if (authUser && authUser.email) {
+          email = authUser.email;
+          
+          // DATA PATCH AUTOMÁTICO: Salva o e-mail real no documento do Firestore
+          try {
+            const patchPayload: Record<string, any> = {
+              email: authUser.email,
+              updatedAt: FieldValue.serverTimestamp()
+            };
+            if (authUser.displayName && !data.name) {
+              patchPayload.name = authUser.displayName;
+            }
+            if (authUser.emailVerified !== undefined && data.emailVerified === undefined) {
+              patchPayload.emailVerified = authUser.emailVerified;
+            }
+
+            await firestore.collection("users").doc(userId).set(patchPayload, { merge: true });
+            patchedCount++;
+            console.log(`[Admin Users Auto-Patch] ✅ E-mail restaurado e persistido no Firestore para o usuário ${userId}: ${email}`);
+          } catch (patchErr) {
+            console.error(`[Admin Users Auto-Patch] Erro ao persistir patch para ${userId}:`, patchErr);
+          }
+        }
+      }
+
+      usersList.push({
+        id: userId,
+        ...data,
+        email: email || undefined,
+        name: data.name || (authUsersMap.get(userId)?.displayName) || 'Sem Nome'
+      });
+    }
+
+    // Ordenar por data de criação / mais recentes primeiro se disponível
+    usersList.sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
+
+    console.log(`[Admin Users API] Retornando ${usersList.length} usuários (${patchedCount} auto-corrigidos com e-mail do Auth).`);
+    return res.json({
+      success: true,
+      users: usersList,
+      total: usersList.length,
+      patchedCount
+    });
+  } catch (error: any) {
+    console.error("[Admin Users API] Error:", error);
+    return res.status(500).json({ error: error?.message || "Failed to fetch and patch users" });
+  }
+});
+
 // Endpoint para salvar token FCM de Administrador/Dispositivo diretamente no Firestore via Admin SDK
 app.post("/api/admin/save-token", async (req, res) => {
   try {

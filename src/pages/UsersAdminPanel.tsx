@@ -70,12 +70,34 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const q = query(collection(db, 'users'));
-      const snapshot = await getDocs(q);
-      const loadedUsers = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      let loadedUsers: any[] = [];
+      
+      // 1. Tentar buscar via API administrativa do backend (com recuperação automática de e-mails do Auth e Data Patch)
+      try {
+        const res = await fetch('/api/admin/users');
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.users)) {
+            loadedUsers = data.users;
+            if (data.patchedCount > 0) {
+              console.log(`[Admin Panel] Auto Data Patch: ${data.patchedCount} e-mails recuperados e sincronizados no Firestore.`);
+            }
+          }
+        }
+      } catch (apiErr) {
+        console.warn('[Admin Panel] API /api/admin/users indisponível, usando fallback do Firestore:', apiErr);
+      }
+
+      // 2. Fallback via Client SDK do Firestore se a API não retornar
+      if (loadedUsers.length === 0) {
+        const q = query(collection(db, 'users'));
+        const snapshot = await getDocs(q);
+        loadedUsers = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+      }
+
       setUsers(loadedUsers);
     } catch (err) {
       toast.error('Erro ao buscar usuários.');
@@ -498,7 +520,7 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h3 className="font-bold text-gray-900 dark:text-white text-lg">{u.name || 'Sem Nome'}</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{u.email || 'Sem E-mail (Antigo)'}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{u.email || 'Sem E-mail'}</p>
                 </div>
                 {isTargetAdmin ? (
                   <div className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 flex items-center gap-1 shadow-sm">
