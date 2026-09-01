@@ -317,12 +317,10 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
             title: pushTitle,
             body: pushBody,
             icon: "/images/logo.png",
-            badge: "/images/logo.png",
-            image: "/images/logo.png",
             tag: `admin-sale-${transactionId}`,
             renotify: true,
             requireInteraction: true,
-            vibrate: [300, 100, 300, 100, 400],
+            vibrate: [400, 150, 400, 150, 500],
             silent: false,
             data: {
               type: "admin_sale_alert",
@@ -342,7 +340,6 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
           title: pushTitle,
           body: pushBody,
           icon: "/images/logo.png",
-          badge: "/images/logo.png",
           url: "/?tab=admin_users"
         }
       };
@@ -769,11 +766,11 @@ async function activateUserPremium({
               title: welcomeTitle,
               body: welcomeBody,
               icon: "/images/rosa.png",
-              badge: "/images/rosa.png",
               tag: `vip-activated-${targetRef.id}`,
               renotify: true,
               requireInteraction: true,
               data: {
+                type: "vip_activated",
                 url: "/"
               }
             },
@@ -785,6 +782,8 @@ async function activateUserPremium({
             type: "vip_activated",
             title: welcomeTitle,
             body: welcomeBody,
+            icon: "/images/rosa.png",
+            tag: `vip-activated-${targetRef.id}`,
             url: "/"
           }
         });
