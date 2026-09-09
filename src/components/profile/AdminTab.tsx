@@ -6,6 +6,7 @@ import { useDevotionals } from '../../context/DevotionalContext';
 import { useToast } from '../../context/ToastContext';
 import { DevotionalItem, mockDevotionals } from '../../data/devotionals';
 import { cn } from '../../lib/utils';
+import { extractYouTubeId } from '../video/YouTubeFacade';
 import { ApiMonitoringDashboard } from '../admin/ApiMonitoringDashboard';
 import { recordApiUsage } from '../../services/apiMetricsService';
 
@@ -243,12 +244,7 @@ export function AdminTab() {
   const handleSaveDaily = async () => {
     setSaving(true);
     try {
-      let parsedVideoId = videoId.trim();
-      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-      const match = parsedVideoId.match(regExp);
-      if (match && match[2].length === 11) {
-        parsedVideoId = match[2];
-      }
+      let parsedVideoId = extractYouTubeId(videoId);
 
       const timestamp = new Date().toISOString();
 
@@ -369,12 +365,7 @@ export function AdminTab() {
 
   const handleUpdateVideo = async (id: string) => {
     try {
-      let parsedVideoId = editHistVideoId.trim();
-      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-      const match = parsedVideoId.match(regExp);
-      if (match && match[2].length === 11) {
-        parsedVideoId = match[2];
-      }
+      let parsedVideoId = extractYouTubeId(editHistVideoId);
 
       await updateDoc(doc(db, 'videos', id), {
         videoId: parsedVideoId,

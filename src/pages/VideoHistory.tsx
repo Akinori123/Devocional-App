@@ -20,7 +20,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
 import { useToast } from '../context/ToastContext';
-import { YouTubeFacade } from '../components/video/YouTubeFacade';
+import { YouTubeFacade, extractYouTubeId } from '../components/video/YouTubeFacade';
 import { useVideoFavorites } from '../services/videoFavoritesService';
 
 interface VideoHistoryProps {
@@ -193,12 +193,7 @@ export function VideoHistory({ onBack, onGoToPremium }: VideoHistoryProps) {
   const handleSaveEdit = async (videoId: string) => {
     try {
       setSavingId(videoId);
-      let parsedVideoId = editVideoId.trim();
-      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-      const match = parsedVideoId.match(regExp);
-      if (match && match[2].length === 11) {
-        parsedVideoId = match[2];
-      }
+      let parsedVideoId = extractYouTubeId(editVideoId);
 
       await updateDoc(doc(db, 'videos', videoId), {
         videoId: parsedVideoId,

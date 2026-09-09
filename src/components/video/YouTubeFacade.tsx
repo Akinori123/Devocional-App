@@ -1,6 +1,58 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Crown, Lock, Film } from 'lucide-react';
+import { Play, Crown, Lock, Film, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+
+/**
+ * Extrai o ID do vídeo do YouTube a partir de qualquer formato de link:
+ * - youtu.be/ID
+ * - youtube.com/watch?v=ID
+ * - youtube.com/embed/ID
+ * - youtube.com/shorts/ID
+ * - youtube.com/live/ID
+ * - m.youtube.com/watch?v=ID
+ * - ID puro (ex: dQw4w9WgXcQ)
+ */
+export function extractYouTubeId(urlOrId: string | null | undefined): string {
+  if (!urlOrId) return '';
+  const trimmed = urlOrId.trim();
+  if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return '';
+
+  // Caso seja exatamente o ID padrão de 11 caracteres
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // 1. Links encurtados: youtu.be/<id>
+  const shortMatch = trimmed.match(/(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)/i);
+  if (shortMatch && shortMatch[1]) {
+    return shortMatch[1].split('?')[0].split('&')[0].split('#')[0];
+  }
+
+  // 2. Links de embed, shorts, live ou v: youtube.com/(embed|shorts|live|v)/<id>
+  const pathMatches = trimmed.match(/(?:https?:\/\/)?(?:www\.|m\.)?youtube(?:-nocookie)?\.com\/(?:embed|shorts|live|v)\/([a-zA-Z0-9_-]+)/i);
+  if (pathMatches && pathMatches[1]) {
+    return pathMatches[1].split('?')[0].split('&')[0].split('#')[0];
+  }
+
+  // 3. Links padrão com parâmetro v: youtube.com/watch?v=<id> ou m.youtube.com/watch?v=<id>
+  const queryMatch = trimmed.match(/[?&]v=([a-zA-Z0-9_-]+)/i);
+  if (queryMatch && queryMatch[1]) {
+    return queryMatch[1].split('&')[0].split('#')[0];
+  }
+
+  // 4. Fallback para padrão de 11 caracteres em qualquer URL
+  const generic11Char = trimmed.match(/([a-zA-Z0-9_-]{11})/);
+  if (generic11Char && generic11Char[1]) {
+    return generic11Char[1];
+  }
+
+  // 5. Caso contenha apenas caracteres válidos de ID (8 a 15 caracteres)
+  if (/^[a-zA-Z0-9_-]{8,15}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  return trimmed;
+}
 
 interface YouTubeFacadeProps {
   videoId: string;
@@ -22,6 +74,7 @@ export function YouTubeFacade({
   autoPlay = true,
 }: YouTubeFacadeProps) {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isIframeLoading, setIsIframeLoading] = useState(true);
   // fallbackStage:
   // 0: maxresdefault.jpg (Alta Resolução HD)
   // 1: hqdefault.jpg (Média / Alta Resolução)
@@ -31,12 +84,13 @@ export function YouTubeFacade({
   // 5: Fallback de renderização interna (gradiente com ícone)
   const [fallbackStage, setFallbackStage] = useState<number>(0);
 
-  const cleanVideoId = (videoId || '').trim();
+  const cleanVideoId = extractYouTubeId(videoId);
 
-  // Reinicia o fallback caso o videoId mude
+  // Reinicia o fallback e estado de loading caso o videoId mude
   useEffect(() => {
     setFallbackStage(0);
     setIsPlaying(false);
+    setIsIframeLoading(true);
   }, [cleanVideoId]);
 
   // Calcula o src atual da thumbnail baseado no estágio de fallback
@@ -72,6 +126,15 @@ export function YouTubeFacade({
 
   const thumbUrl = getThumbnailSrc();
 
+  if (!cleanVideoId) {
+    return (
+      <div className={cn("w-full h-full relative aspect-video bg-slate-900 dark:bg-slate-950 rounded-2xl overflow-hidden flex flex-col items-center justify-center p-6 text-center border border-slate-800", className)}>
+        <Film className="w-10 h-10 text-gray-600 dark:text-gray-500 mb-2" />
+        <p className="text-sm font-medium text-gray-400">Vídeo indisponível ou link inválido</p>
+      </div>
+    );
+  }
+
   if (isLocked) {
     return (
       <div 
@@ -106,16 +169,37 @@ export function YouTubeFacade({
   }
 
   if (isPlaying) {
+    const embedUrl = `https://www.youtube.com/embed/${cleanVideoId}?autoplay=${autoPlay ? 1 : 0}&rel=0&modestbranding=1&enablejsapi=1`;
+
     return (
       <div className={cn("w-full h-full relative aspect-video bg-black rounded-2xl overflow-hidden shadow-inner", className)}>
+        {/* Loading Skeleton / Fundo Neutro enquanto o iframe do YouTube carrega */}
+        {isIframeLoading && (
+          <div className="absolute inset-0 z-10 bg-slate-900 dark:bg-slate-950 flex flex-col items-center justify-center p-4 text-center animate-pulse">
+            <div className="w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center mb-3">
+              <Loader2 className="w-6 h-6 text-yellow-500 animate-spin" />
+            </div>
+            <p className="text-xs font-semibold text-yellow-100/90 tracking-wide">
+              Carregando vídeo...
+            </p>
+            <span className="text-[11px] text-gray-400 mt-1 line-clamp-1 max-w-[80%]">
+              {title}
+            </span>
+          </div>
+        )}
+
         <iframe 
-          className="w-full h-full absolute inset-0"
-          src={`https://www.youtube.com/embed/${cleanVideoId}?autoplay=${autoPlay ? 1 : 0}&rel=0&modestbranding=1`} 
+          className={cn(
+            "w-full h-full absolute inset-0 transition-opacity duration-300",
+            isIframeLoading ? "opacity-0" : "opacity-100"
+          )}
+          src={embedUrl} 
           title={title} 
           frameBorder="0" 
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
           referrerPolicy="strict-origin-when-cross-origin" 
           allowFullScreen
+          onLoad={() => setIsIframeLoading(false)}
         />
       </div>
     );

@@ -14,7 +14,7 @@ import { getJourneyStatus } from '../utils/journey';
 import { getThemeStyle } from '../utils/themeStyle';
 
 import { DevotionalItem } from '../data/devotionals';
-import { YouTubeFacade } from '../components/video/YouTubeFacade';
+import { YouTubeFacade, extractYouTubeId } from '../components/video/YouTubeFacade';
 import { MissionsModal } from '../components/gamification/MissionsModal';
 import { CoinIcon } from '../components/common/CoinIcon';
 
@@ -307,13 +307,7 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
     }
   };
 
-  const hasVideo = Boolean(
-    dailyData.videoId && 
-    typeof dailyData.videoId === 'string' && 
-    dailyData.videoId.trim() !== '' &&
-    dailyData.videoId !== 'undefined' &&
-    dailyData.videoId !== 'null'
-  );
+  const hasVideo = Boolean(extractYouTubeId(dailyData.videoId));
 
   return (
     <div className="flex-1 overflow-y-auto pb-24 bg-gray-50 dark:bg-slate-900 min-h-screen transition-colors duration-200">
@@ -496,7 +490,14 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
               <span>Ver todos</span>
             </button>
           </div>
-          {hasVideo ? (
+          {isDailyLoading ? (
+            <div className="bg-slate-200 dark:bg-slate-800 rounded-2xl aspect-video animate-pulse flex items-center justify-center border border-gray-100 dark:border-slate-700">
+              <div className="flex flex-col items-center gap-2 text-gray-400 dark:text-slate-500">
+                <Video className="w-8 h-8 opacity-40 animate-pulse" />
+                <span className="text-xs font-medium">Carregando vídeo...</span>
+              </div>
+            </div>
+          ) : hasVideo ? (
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden aspect-video relative z-0 transition-colors duration-200">
               <YouTubeFacade
                 videoId={dailyData.videoId}
