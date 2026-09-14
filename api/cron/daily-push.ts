@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
+import { getDailyContent } from '../../src/data/dailyContent';
 
 // Initialize Firebase Admin (only once, with multiple credential formats fallback)
 if (!getApps().length) {
@@ -101,18 +102,80 @@ export default async function handler(req: Request, res: Response) {
       }
     }
 
-    // 2. Fetch Daily Scripture / Verse Content
-    let wordOfTheDay = "Um novo dia, uma nova oportunidade para buscar a Deus.";
+    // 2. Fetch Daily Scripture / Verse Content with Expiration & Automatic Fallback
+    let wordOfTheDay = "";
+    let isCustomValid = false;
+    let verseSource: 'custom' | 'automatic' | 'fallback' = 'fallback';
+    let customVerseMetadata: any = null;
+
     try {
       const dailyRef = await firestore.collection("settings").doc("daily_content").get();
       if (dailyRef.exists) {
         const dailyData = dailyRef.data();
-        if (dailyData?.verseText) {
-          wordOfTheDay = dailyData.verseText;
+        const candidateText = (dailyData?.verseText || "").trim();
+
+        if (candidateText && dailyData?.updatedAt) {
+          let updatedDate: Date | null = null;
+          if (typeof dailyData.updatedAt?.toDate === 'function') {
+            updatedDate = dailyData.updatedAt.toDate();
+          } else {
+            updatedDate = new Date(dailyData.updatedAt);
+          }
+
+          if (updatedDate && !isNaN(updatedDate.getTime())) {
+            // Verificar data em Horário de Brasília (YYYY-MM-DD)
+            const updatedDateBrasilia = new Intl.DateTimeFormat('en-CA', { 
+              timeZone: 'America/Sao_Paulo' 
+            }).format(updatedDate);
+
+            // Verificar se está dentro da janela de 24 horas (em milissegundos)
+            const diffMs = Date.now() - updatedDate.getTime();
+            const isWithin24Hours = diffMs >= 0 && diffMs <= 24 * 60 * 60 * 1000;
+
+            // O conteúdo customizado é válido se foi postado HOJE (Brasília) OU dentro das últimas 24h
+            if (updatedDateBrasilia === todayBrasilia || isWithin24Hours) {
+              isCustomValid = true;
+              wordOfTheDay = candidateText;
+              verseSource = 'custom';
+              customVerseMetadata = {
+                updatedAt: updatedDate.toISOString(),
+                updatedDateBrasilia,
+                isWithin24Hours
+              };
+              console.log(`[Daily Push] Devocional customizado VÁLIDO (atualizado em ${updatedDateBrasilia}, há ${Math.round(diffMs / 3600000)}h).`);
+            } else {
+              console.log(`[Daily Push] Devocional customizado EXPIRADO (atualizado em ${updatedDateBrasilia} vs hoje ${todayBrasilia}). Ignorando conteúdo antigo.`);
+              customVerseMetadata = {
+                updatedAt: updatedDate.toISOString(),
+                updatedDateBrasilia,
+                expired: true
+              };
+            }
+          }
         }
       }
     } catch (e) {
-      console.warn("Could not fetch daily_content doc:", e);
+      console.warn("[Daily Push] Erro ao consultar settings/daily_content:", e);
+    }
+
+    // Fallback Automático: Se não houver devocional customizado válido para hoje,
+    // utilizar o devocional/versículo automático do dia (mesma rotação utilizada no frontend)
+    if (!isCustomValid || !wordOfTheDay) {
+      try {
+        const localDaily = getDailyContent();
+        if (localDaily?.verse?.text) {
+          wordOfTheDay = localDaily.verse.text.trim();
+          verseSource = 'automatic';
+          console.log(`[Daily Push] Utilizando versículo automático do dia (${localDaily.verse.reference || 'Bíblia'}): "${wordOfTheDay.substring(0, 50)}..."`);
+        }
+      } catch (fallbackErr) {
+        console.warn("[Daily Push] Erro ao carregar devocional automático:", fallbackErr);
+      }
+
+      if (!wordOfTheDay) {
+        wordOfTheDay = "Confia no Senhor de todo o teu coração e não te estribes no teu próprio entendimento.";
+        verseSource = 'fallback';
+      }
     }
 
     // 3. Deduplicação Estrita por UID, Faxina de Tokens e Análise de Vencimento de Assinaturas (Dunning)
@@ -427,7 +490,10 @@ export default async function handler(req: Request, res: Response) {
       dunningSentCount,
       expiredUsersRevoked,
       tokensPrunedFromUsers,
-      deadTokensDeletedCount
+      deadTokensDeletedCount,
+      verseSource,
+      wordOfTheDayPreview: wordOfTheDay.substring(0, 80),
+      customVerseMetadata: customVerseMetadata || null
     }, { merge: true });
 
     return res.status(200).json({ 
@@ -440,7 +506,10 @@ export default async function handler(req: Request, res: Response) {
       dunningSentCount,
       expiredUsersRevoked,
       tokensPrunedFromUsers,
-      deadTokensDeletedCount
+      deadTokensDeletedCount,
+      verseSource,
+      wordOfTheDayPreview: wordOfTheDay.substring(0, 80),
+      customVerseMetadata: customVerseMetadata || null
     });
   } catch (error: any) {
     console.error("Error in daily-push cron:", error);

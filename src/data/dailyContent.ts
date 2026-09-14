@@ -45,15 +45,12 @@ export const dailyVideos = [
   // We'll just loop these if we run out.
 ];
 
-export function getDailyContent() {
+export function getDailyContent(date: Date = new Date()) {
   // Use the day of the year to cycle through
-  const now = new Date();
-  const start = startOfYear(now);
-  const dayOfYear = differenceInCalendarDays(now, start);
+  const start = startOfYear(date);
+  const dayOfYear = differenceInCalendarDays(date, start);
   
-  
-
-  const verseIndex = dayOfYear % dailyVerses.length;
+  const verseIndex = Math.abs(dayOfYear) % dailyVerses.length;
 
   return {
     verse: dailyVerses[verseIndex],

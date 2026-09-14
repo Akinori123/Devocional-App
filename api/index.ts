@@ -9,6 +9,8 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getMessaging } from 'firebase-admin/messaging';
 import { MercadoPagoConfig, Preference, PreApproval, Payment } from 'mercadopago';
+import dailyPushHandler from './cron/daily-push';
+import coinsReminderHandler from './cron/coins-reminder';
 
 dotenv.config();
 
@@ -2198,8 +2200,8 @@ app.get("/api/coins/history/:userId", async (req, res) => {
   }
 });
 
-// 4. Cron Jobs info (standalone in /api/cron/* on Vercel)
-app.all("/api/cron/daily-push", (req, res) => res.json({ status: "ok", message: "Cron endpoint active at /api/cron/daily-push" }));
-app.all("/api/cron/coins-reminder", (req, res) => res.json({ status: "ok", message: "Cron endpoint active at /api/cron/coins-reminder" }));
+// 4. Cron Jobs (standalone in /api/cron/* on Vercel and mounted in Express)
+app.all("/api/cron/daily-push", (req, res) => dailyPushHandler(req, res));
+app.all("/api/cron/coins-reminder", (req, res) => coinsReminderHandler(req, res));
 
 export default app;
