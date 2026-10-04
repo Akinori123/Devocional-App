@@ -16,7 +16,7 @@ import {
   getDownloadURL, 
   deleteObject 
 } from 'firebase/storage';
-import { db, storage } from '../lib/firebase';
+import { db, storage, auth } from '../lib/firebase';
 import { 
   StoreCategory, 
   StoreProduct, 
@@ -62,6 +62,22 @@ export async function getStoreCategories(): Promise<StoreCategory[]> {
 }
 
 export async function createStoreCategory(name: string, order: number): Promise<StoreCategory> {
+  // 1. Tentar via API Server-side (Firebase Admin - 100% livre de falhas de permissão)
+  try {
+    const res = await fetch('/api/store/categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, order })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.category) return data.category;
+    }
+  } catch (apiErr) {
+    console.warn('[storeService] API /api/store/categories indisponível, usando fallback Firestore');
+  }
+
+  // 2. Fallback via Firestore Client SDK
   const categoryId = `cat_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const categoryData: StoreCategory = {
     id: categoryId,
@@ -73,6 +89,19 @@ export async function createStoreCategory(name: string, order: number): Promise<
 }
 
 export async function updateStoreCategory(id: string, name: string, order: number): Promise<void> {
+  // 1. Tentar via API Server-side
+  try {
+    const res = await fetch(`/api/store/categories/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, order })
+    });
+    if (res.ok) return;
+  } catch (apiErr) {
+    console.warn('[storeService] API PUT /api/store/categories indisponível, usando fallback');
+  }
+
+  // 2. Fallback via Firestore Client SDK
   await updateDoc(doc(db, 'store_categories', id), {
     name: name.trim(),
     order: Number(order) || 0
@@ -80,7 +109,28 @@ export async function updateStoreCategory(id: string, name: string, order: numbe
 }
 
 export async function deleteStoreCategory(id: string): Promise<void> {
-  await deleteDoc(doc(db, 'store_categories', id));
+  let apiSucceeded = false;
+  // 1. Tentar via API Server-side
+  try {
+    const res = await fetch(`/api/store/categories/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
+    if (res.ok) {
+      apiSucceeded = true;
+    }
+  } catch (apiErr) {
+    console.warn('[storeService] API DELETE /api/store/categories indisponível, usando fallback');
+  }
+
+  // 2. Fallback via Firestore Client SDK
+  if (!apiSucceeded) {
+    try {
+      await deleteDoc(doc(db, 'store_categories', id));
+    } catch (firestoreErr) {
+      console.error('[storeService] Falha ao deletar categoria no Firestore:', firestoreErr);
+      throw firestoreErr;
+    }
+  }
 }
 
 /**
@@ -126,12 +176,28 @@ export async function getStoreProducts(includeInactive = false): Promise<StorePr
     });
     return products;
   } catch (err) {
-    console.error('Erro ao buscar produtos da loja:', err);
+    console.warn('Erro ao buscar produtos da loja:', err);
     return [];
   }
 }
 
 export async function createStoreProduct(data: Omit<StoreProduct, 'id'>): Promise<StoreProduct> {
+  // 1. Tentar via API Server-side (Firebase Admin - 100% livre de falhas de permissão)
+  try {
+    const res = await fetch('/api/store/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (res.ok) {
+      const result = await res.json();
+      if (result.product) return result.product;
+    }
+  } catch (apiErr) {
+    console.warn('[storeService] API /api/store/products indisponível, usando fallback');
+  }
+
+  // 2. Fallback via Firestore Client SDK
   const productId = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const now = new Date().toISOString();
   const productData: StoreProduct = {
@@ -145,6 +211,19 @@ export async function createStoreProduct(data: Omit<StoreProduct, 'id'>): Promis
 }
 
 export async function updateStoreProduct(id: string, data: Partial<StoreProduct>): Promise<void> {
+  // 1. Tentar via API Server-side
+  try {
+    const res = await fetch(`/api/store/products/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (res.ok) return;
+  } catch (apiErr) {
+    console.warn('[storeService] API PUT /api/store/products indisponível, usando fallback');
+  }
+
+  // 2. Fallback via Firestore Client SDK
   const updateData: any = {
     ...data,
     updatedAt: new Date().toISOString()
@@ -153,15 +232,48 @@ export async function updateStoreProduct(id: string, data: Partial<StoreProduct>
 }
 
 /**
+ * Exclusão de Produto:
+ * Remove o produto do catálogo. Se permanent for true ou não tiver vendas, remove do banco.
+ */
+export async function deleteStoreProduct(id: string, permanent = false): Promise<void> {
+  let apiSucceeded = false;
+  // 1. Tentar via API Server-side
+  try {
+    const res = await fetch(`/api/store/products/${encodeURIComponent(id)}?permanent=${permanent}`, {
+      method: 'DELETE'
+    });
+    if (res.ok) {
+      apiSucceeded = true;
+    }
+  } catch (apiErr) {
+    console.warn('[storeService] API DELETE /api/store/products indisponível, usando fallback');
+  }
+
+  // 2. Fallback via Firestore Client SDK
+  if (!apiSucceeded) {
+    try {
+      if (permanent) {
+        await deleteDoc(doc(db, 'store_products', id));
+      } else {
+        await updateDoc(doc(db, 'store_products', id), {
+          isActive: false,
+          updatedAt: new Date().toISOString()
+        });
+      }
+    } catch (firestoreErr) {
+      console.error('[storeService] Falha ao deletar produto no Firestore:', firestoreErr);
+      throw firestoreErr;
+    }
+  }
+}
+
+/**
  * Exclusão Segura (Soft Delete):
  * O Admin pode 'excluir' ou pausar um produto. Isso apenas altera o isActive para false,
  * removendo-o da vitrine, mas preservando o documento para não quebrar o histórico de pedidos.
  */
 export async function softDeleteStoreProduct(id: string): Promise<void> {
-  await updateDoc(doc(db, 'store_products', id), {
-    isActive: false,
-    updatedAt: new Date().toISOString()
-  });
+  return deleteStoreProduct(id, false);
 }
 
 /**
@@ -203,7 +315,7 @@ export async function deleteProductImageFromStorage(imageUrl: string): Promise<b
  * 3. PEDIDOS (store_orders)
  */
 export async function getStoreOrders(userId?: string): Promise<StoreOrder[]> {
-  // 1. Tentar buscar via API Server-side (100% resiliente a regras e autenticação)
+  // 1. Tentar buscar via API Server-side (100% resiliente a regras, autenticação e índices)
   try {
     const url = userId ? `/api/store/orders?userId=${encodeURIComponent(userId)}` : '/api/store/orders';
     const res = await fetch(url);
@@ -220,11 +332,22 @@ export async function getStoreOrders(userId?: string): Promise<StoreOrder[]> {
   // 2. Fallback via Firestore Client SDK
   try {
     const colRef = collection(db, 'store_orders');
-    let q = query(colRef, orderBy('createdAt', 'desc'));
+    let snap;
     if (userId) {
-      q = query(colRef, where('userId', '==', userId), orderBy('createdAt', 'desc'));
+      // Query apenas por userId para não exigir índice composto
+      const q = query(colRef, where('userId', '==', userId));
+      snap = await getDocs(q);
+    } else {
+      // Somente busca todos os pedidos se houver usuário autenticado (admin)
+      if (!auth.currentUser) return [];
+      try {
+        const q = query(colRef, orderBy('createdAt', 'desc'));
+        snap = await getDocs(q);
+      } catch {
+        snap = await getDocs(colRef);
+      }
     }
-    const snap = await getDocs(q);
+
     const orders: StoreOrder[] = [];
     snap.forEach((docSnap) => {
       const d = docSnap.data();
@@ -241,13 +364,23 @@ export async function getStoreOrders(userId?: string): Promise<StoreOrder[]> {
         trackingCode: d.trackingCode || '',
         deliveryAddress: d.deliveryAddress || undefined,
         paymentId: d.paymentId || undefined,
+        deliveredAt: d.deliveredAt || undefined,
+        autoDeliveredViaCron: d.autoDeliveredViaCron || false,
         createdAt: d.createdAt || '',
         updatedAt: d.updatedAt || ''
       });
     });
+
+    // Ordenação garantida em memória pelo mais recente
+    orders.sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
+
     return orders;
   } catch (err) {
-    console.error('Erro ao buscar pedidos:', err);
+    console.warn('[storeService] Fallback Firestore orders warning:', err);
     return [];
   }
 }
@@ -300,3 +433,27 @@ export async function updateStoreOrderStatusApi(params: {
 
   return data;
 }
+
+/**
+ * Disparar checagem automática de entregas (Cron / Link&Track / Correios)
+ */
+export async function triggerCheckDeliveriesCron(): Promise<{
+  success: boolean;
+  totalChecked: number;
+  totalUpdated: number;
+  updatedOrders?: any[];
+  error?: string;
+}> {
+  const response = await fetch('/api/cron/check-deliveries', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+
+  const data = await response.json();
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || 'Falha ao sincronizar entregas com Correios');
+  }
+
+  return data;
+}
+

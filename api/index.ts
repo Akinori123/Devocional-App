@@ -11,13 +11,20 @@ import { getMessaging } from 'firebase-admin/messaging';
 import { MercadoPagoConfig, Preference, PreApproval, Payment } from 'mercadopago';
 import dailyPushHandler from './cron/daily-push';
 import coinsReminderHandler from './cron/coins-reminder';
+import checkDeliveriesHandler from './cron/check-deliveries';
 import { 
   handleCreateStorePreference, 
   handleUpdateStoreOrderStatus, 
   handleProcessStoreOrderPayment,
   handleGetStoreCategories,
   handleGetStoreProducts,
-  handleGetStoreOrders
+  handleGetStoreOrders,
+  handleCreateStoreCategory,
+  handleUpdateStoreCategory,
+  handleDeleteStoreCategory,
+  handleCreateStoreProduct,
+  handleUpdateStoreProduct,
+  handleDeleteStoreProduct
 } from './store';
 
 dotenv.config();
@@ -1175,7 +1182,15 @@ app.get("/api/mercadopago/webhook", (req, res) => res.status(200).json({ status:
 
 // Módulo Loja Florescer (E-commerce / Dropshipping)
 app.get("/api/store/categories", handleGetStoreCategories);
+app.post("/api/store/categories", handleCreateStoreCategory);
+app.put("/api/store/categories/:id", handleUpdateStoreCategory);
+app.delete("/api/store/categories/:id", handleDeleteStoreCategory);
+
 app.get("/api/store/products", handleGetStoreProducts);
+app.post("/api/store/products", handleCreateStoreProduct);
+app.put("/api/store/products/:id", handleUpdateStoreProduct);
+app.delete("/api/store/products/:id", handleDeleteStoreProduct);
+
 app.get("/api/store/orders", handleGetStoreOrders);
 app.post("/api/store/create-preference", handleCreateStorePreference);
 app.post("/api/store/orders/update-status", handleUpdateStoreOrderStatus);
@@ -2226,5 +2241,7 @@ app.get("/api/coins/history/:userId", async (req, res) => {
 // 4. Cron Jobs (standalone in /api/cron/* on Vercel and mounted in Express)
 app.all("/api/cron/daily-push", (req, res) => dailyPushHandler(req, res));
 app.all("/api/cron/coins-reminder", (req, res) => coinsReminderHandler(req, res));
+app.all("/api/cron/check-deliveries", (req, res) => checkDeliveriesHandler(req, res));
+app.all("/api/store/cron/check-deliveries", (req, res) => checkDeliveriesHandler(req, res));
 
 export default app;

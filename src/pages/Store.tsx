@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Search, 
   ShoppingBag, 
-  Sparkles, 
   ChevronRight, 
   X, 
   Check, 
@@ -15,7 +14,12 @@ import {
   Package,
   MapPin,
   ExternalLink,
-  Phone
+  Phone,
+  AlertCircle,
+  CheckCircle2,
+  AlertTriangle,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { 
   StoreCategory, 
@@ -67,6 +71,21 @@ export function Store({ onChangeTab }: StoreProps) {
   const [loadingCep, setLoadingCep] = useState(false);
   const [processingCheckout, setProcessingCheckout] = useState(false);
 
+  // Estados de Validação e Erros dos Campos
+  const [fullNameError, setFullNameError] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
+  const [cepError, setCepError] = useState('');
+  const [cepWarning, setCepWarning] = useState('');
+  const [cepStatus, setCepStatus] = useState<'idle' | 'loading' | 'valid' | 'fallback' | 'invalid' | 'incomplete'>('idle');
+  const [isAddressLocked, setIsAddressLocked] = useState(false);
+  const [streetError, setStreetError] = useState('');
+  const [numberError, setNumberError] = useState('');
+  const [neighborhoodError, setNeighborhoodError] = useState('');
+  const [cityError, setCityError] = useState('');
+  const [stateError, setStateError] = useState('');
+  const [formAttempted, setFormAttempted] = useState(false);
+
   useEffect(() => {
     loadStoreData();
   }, []);
@@ -98,35 +117,157 @@ export function Store({ onChangeTab }: StoreProps) {
     }
   };
 
-  // Busca Automática de CEP via ViaCEP
-  const handleCepChange = async (value: string) => {
-    const raw = value.replace(/\D/g, '');
-    let formatted = raw;
-    if (raw.length > 5) {
-      formatted = `${raw.slice(0, 5)}-${raw.slice(5, 8)}`;
-    }
-    setCep(formatted);
+  // 1. MÁSCARA E VALIDAÇÃO DE TELEFONE / WHATSAPP: (00) 00000-0000 (11 dígitos)
+  const formatPhone = (val: string): string => {
+    const raw = val.replace(/\D/g, '').slice(0, 11);
+    if (raw.length === 0) return '';
+    if (raw.length <= 2) return `(${raw}`;
+    if (raw.length <= 7) return `(${raw.slice(0, 2)}) ${raw.slice(2)}`;
+    return `(${raw.slice(0, 2)}) ${raw.slice(2, 7)}-${raw.slice(7, 11)}`;
+  };
 
-    if (raw.length === 8) {
-      setLoadingCep(true);
-      try {
-        const res = await fetch(`https://viacep.com.br/ws/${raw}/json/`);
-        const data = await res.json();
-        if (!data.erro) {
-          setStreet(data.logradouro || '');
-          setNeighborhood(data.bairro || '');
-          setCity(data.localidade || '');
-          setState(data.uf || '');
-        } else {
-          toast.error('CEP não encontrado.');
-        }
-      } catch (err) {
-        console.warn('Erro ao consultar ViaCEP:', err);
-      } finally {
-        setLoadingCep(false);
-      }
+  const handlePhoneChange = (value: string) => {
+    const formatted = formatPhone(value);
+    setPhone(formatted);
+    const digits = formatted.replace(/\D/g, '');
+    if (digits.length > 0 && digits.length !== 11) {
+      setPhoneError('Telefone inválido. Verifique os números (11 dígitos com DDD).');
+    } else {
+      setPhoneError('');
     }
   };
+
+  // 2. MÁSCARA E VALIDAÇÃO DE CEP VIA VIACEP: 00000-000 (8 dígitos)
+  const formatCep = (val: string): string => {
+    const raw = val.replace(/\D/g, '').slice(0, 8);
+    if (raw.length <= 5) return raw;
+    return `${raw.slice(0, 5)}-${raw.slice(5, 8)}`;
+  };
+
+  const handleCepChange = async (value: string) => {
+    const raw = value.replace(/\D/g, '').slice(0, 8);
+    const formatted = formatCep(raw);
+    setCep(formatted);
+    setCepWarning('');
+
+    // Se o usuário apagou ou ainda não digitou 8 dígitos completos
+    if (raw.length < 8) {
+      setCepStatus(raw.length === 0 ? 'idle' : 'incomplete');
+      setCepError(raw.length > 0 ? 'Digite o CEP completo com 8 dígitos.' : '');
+      setIsAddressLocked(false);
+      return;
+    }
+
+    // 8 dígitos: acionar busca automática ViaCEP
+    setLoadingCep(true);
+    setCepStatus('loading');
+    setCepError('');
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${raw}/json/`);
+      if (!res.ok) throw new Error('Falha de conexão com ViaCEP');
+      const data = await res.json();
+
+      if (data.erro || (!data.logradouro && !data.localidade)) {
+        // Fallback Manual: CEP não localizado automaticamente na base do ViaCEP
+        // NÃO bloqueia o botão de pagamento!
+        // Alerta em tom amarelo/laranja e desbloqueia os campos para preenchimento manual
+        setCepStatus('fallback');
+        setCepError('');
+        setCepWarning('CEP não localizado automaticamente. Por favor, preencha seu endereço abaixo.');
+        setIsAddressLocked(false);
+        toast.info('CEP não localizado automaticamente. Você pode preencher seu endereço manualmente.');
+      } else {
+        // Sucesso: Preenche os dados e bloqueia os campos automáticos
+        setCepStatus('valid');
+        setCepError('');
+        setCepWarning('');
+        setStreet(data.logradouro || '');
+        setNeighborhood(data.bairro || '');
+        setCity(data.localidade || '');
+        setState(data.uf || '');
+        setIsAddressLocked(true);
+        setStreetError('');
+        setNeighborhoodError('');
+        setCityError('');
+        setStateError('');
+      }
+    } catch (err) {
+      console.warn('ViaCEP offline ou indisponível, ativando fallback manual:', err);
+      setCepStatus('fallback');
+      setCepError('');
+      setCepWarning('CEP não localizado automaticamente. Por favor, preencha seu endereço abaixo.');
+      setIsAddressLocked(false);
+      toast.info('CEP não localizado automaticamente. Você pode preencher seu endereço manualmente.');
+    } finally {
+      setLoadingCep(false);
+    }
+  };
+
+  // 3. REGEX PADRÃO DE E-MAIL
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+  const handleEmailChange = (value: string) => {
+    setEmail(value);
+    if (!value.trim()) {
+      setEmailError('Informe seu e-mail.');
+    } else if (!emailRegex.test(value.trim())) {
+      setEmailError('E-mail inválido');
+    } else {
+      setEmailError('');
+    }
+  };
+
+  const handleFullNameChange = (value: string) => {
+    setFullName(value);
+    if (!value.trim()) {
+      setFullNameError('Informe o nome completo do destinatário.');
+    } else if (value.trim().length < 3) {
+      setFullNameError('Informe o nome e sobrenome completos.');
+    } else {
+      setFullNameError('');
+    }
+  };
+
+  // 4. VERIFICAÇÃO SE TODO O FORMULÁRIO ESTÁ 100% VÁLIDO E PREENCHIDO
+  const isFormValid = useMemo(() => {
+    const rawPhone = phone.replace(/\D/g, '');
+    const rawCep = cep.replace(/\D/g, '');
+
+    const validName = fullName.trim().length >= 3;
+    const validEmail = emailRegex.test(email.trim());
+    const validPhone = rawPhone.length === 11;
+    // O CEP é considerado válido se possuir exatamente 8 dígitos (mesmo no modo manual/fallback)
+    const validCep = rawCep.length === 8;
+    const validStreet = street.trim().length > 0;
+    const validNumber = number.trim().length > 0;
+    const validNeighborhood = neighborhood.trim().length > 0;
+    const validCity = city.trim().length > 0;
+    const validState = state.trim().length === 2;
+
+    return (
+      validName &&
+      validEmail &&
+      validPhone &&
+      validCep &&
+      validStreet &&
+      validNumber &&
+      validNeighborhood &&
+      validCity &&
+      validState &&
+      !loadingCep
+    );
+  }, [
+    fullName,
+    email,
+    phone,
+    cep,
+    street,
+    number,
+    neighborhood,
+    city,
+    state,
+    loadingCep
+  ]);
 
   const handleOpenProductDetails = (product: StoreProduct) => {
     if (!product.isActive || product.stock <= 0) return;
@@ -137,26 +278,86 @@ export function Store({ onChangeTab }: StoreProps) {
   const handleStartCheckout = (product: StoreProduct) => {
     if (!product.isActive || product.stock <= 0) return;
     setSelectedProduct(product);
+    setFormAttempted(false);
+    // Limpar estados de erro ao abrir novo checkout
+    setPhoneError('');
+    setCepError('');
+    setCepWarning('');
+    setIsAddressLocked(false);
+    setEmailError('');
+    setFullNameError('');
+    setStreetError('');
+    setNumberError('');
+    setNeighborhoodError('');
+    setCityError('');
+    setStateError('');
     setCheckoutModalOpen(true);
   };
 
   const handleConfirmCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormAttempted(true);
+
     if (!selectedProduct) return;
 
-    if (!fullName.trim()) {
-      toast.error('Informe seu nome completo.');
-      return;
-    }
-    if (!email.trim() || !email.includes('@')) {
-      toast.error('Informe um e-mail válido.');
-      return;
-    }
-    if (!street.trim() || !number.trim() || !neighborhood.trim() || !city.trim() || !state.trim() || !cep.trim()) {
-      toast.error('Preencha os dados completos do endereço de entrega.');
+    // 1. Validação de Nome Completo
+    if (!fullName.trim() || fullName.trim().length < 3) {
+      setFullNameError('Informe o nome completo do destinatário.');
+      toast.error('Informe o nome completo do destinatário.');
       return;
     }
 
+    // 2. Validação de E-mail com Regex
+    if (!email.trim() || !emailRegex.test(email.trim())) {
+      setEmailError('E-mail inválido');
+      toast.error('E-mail inválido. Verifique o endereço digitado.');
+      return;
+    }
+
+    // 3. Validação de Telefone / WhatsApp (exatamente 11 dígitos)
+    const rawPhone = phone.replace(/\D/g, '');
+    if (rawPhone.length !== 11) {
+      setPhoneError('Telefone inválido. Verifique os números.');
+      toast.error('Telefone inválido. Verifique os números.');
+      return;
+    }
+
+    // 4. Validação de CEP (exige 8 dígitos válidos)
+    const rawCep = cep.replace(/\D/g, '');
+    if (rawCep.length !== 8) {
+      setCepError('Informe um CEP válido com 8 dígitos.');
+      toast.error('Informe um CEP válido com 8 dígitos.');
+      return;
+    }
+
+    // 5. Validação de Endereço Completo
+    if (!street.trim()) {
+      setStreetError('Informe o nome da rua / logradouro.');
+      toast.error('Informe o nome da rua / logradouro.');
+      return;
+    }
+    if (!number.trim()) {
+      setNumberError('Informe o número.');
+      toast.error('Informe o número da residência.');
+      return;
+    }
+    if (!neighborhood.trim()) {
+      setNeighborhoodError('Informe o bairro.');
+      toast.error('Informe o bairro.');
+      return;
+    }
+    if (!city.trim()) {
+      setCityError('Informe a cidade.');
+      toast.error('Informe a cidade.');
+      return;
+    }
+    if (!state.trim() || state.trim().length !== 2) {
+      setStateError('Informe a sigla do estado com 2 letras (ex: SP).');
+      toast.error('Informe o estado (UF com 2 letras).');
+      return;
+    }
+
+    // Se todos os campos passaram, inicia o checkout seguro do Mercado Pago
     setProcessingCheckout(true);
     try {
       const deliveryAddress: StoreDeliveryAddress = {
@@ -181,7 +382,6 @@ export function Store({ onChangeTab }: StoreProps) {
 
       if (result.init_point) {
         toast.success('Redirecionando para o Checkout Seguro do Mercado Pago...');
-        // Redireciona para o checkout oficial do Mercado Pago
         window.location.href = result.init_point;
       } else {
         throw new Error('Link de pagamento não retornado');
@@ -215,10 +415,7 @@ export function Store({ onChangeTab }: StoreProps) {
               <ShoppingBag className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-1.5">
-                <h1 className="text-xl font-black text-gray-900 dark:text-white tracking-tight">Loja Florescer</h1>
-                <Sparkles className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-              </div>
+              <h1 className="text-xl font-black text-gray-900 dark:text-white tracking-tight">Loja Florescer</h1>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Itens especiais para o seu momento com Deus
               </p>
@@ -365,9 +562,9 @@ export function Store({ onChangeTab }: StoreProps) {
                           Esgotado
                         </span>
                       ) : isScarcity ? (
-                        <span className="absolute top-2 left-2 bg-amber-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-md flex items-center gap-1 animate-pulse">
-                          <Flame className="w-3 h-3 fill-white" />
-                          Restam apenas {product.stock}!
+                        <span className="absolute top-2 left-2 bg-amber-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-md flex items-center gap-1 animate-pulse max-w-[calc(100%-16px)]">
+                          <Flame className="w-3 h-3 fill-white shrink-0" />
+                          <span className="truncate">Restam apenas {product.stock}!</span>
                         </span>
                       ) : null}
                     </div>
@@ -603,14 +800,25 @@ export function Store({ onChangeTab }: StoreProps) {
                 <input
                   type="text"
                   value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
+                  onChange={(e) => handleFullNameChange(e.target.value)}
                   placeholder="Nome de quem vai receber o pacote"
-                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                  className={cn(
+                    "w-full bg-gray-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white transition-all",
+                    fullNameError
+                      ? "border-red-500 bg-red-50/40 dark:bg-red-950/20 focus:ring-2 focus:ring-red-500/30"
+                      : "border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-yellow-500/30"
+                  )}
                   required
                 />
+                {fullNameError && (
+                  <p className="text-[11px] text-red-500 font-medium mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    <span>{fullNameError}</span>
+                  </p>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
                     E-mail (Rastreio) *
@@ -618,11 +826,22 @@ export function Store({ onChangeTab }: StoreProps) {
                   <input
                     type="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => handleEmailChange(e.target.value)}
                     placeholder="seu@email.com"
-                    className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    className={cn(
+                      "w-full bg-gray-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white transition-all",
+                      emailError
+                        ? "border-red-500 bg-red-50/40 dark:bg-red-950/20 focus:ring-2 focus:ring-red-500/30"
+                        : "border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-yellow-500/30"
+                    )}
                     required
                   />
+                  {emailError && (
+                    <p className="text-[11px] text-red-500 font-medium mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3 shrink-0" />
+                      <span>{emailError}</span>
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -632,25 +851,49 @@ export function Store({ onChangeTab }: StoreProps) {
                   <input
                     type="text"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    maxLength={15}
+                    onChange={(e) => handlePhoneChange(e.target.value)}
                     placeholder="(11) 99999-9999"
-                    className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    className={cn(
+                      "w-full bg-gray-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white transition-all font-mono",
+                      phoneError
+                        ? "border-red-500 bg-red-50/40 dark:bg-red-950/20 focus:ring-2 focus:ring-red-500/30"
+                        : "border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-yellow-500/30"
+                    )}
                     required
                   />
+                  {phoneError && (
+                    <p className="text-[11px] text-red-500 font-medium mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3 shrink-0" />
+                      <span>{phoneError}</span>
+                    </p>
+                  )}
                 </div>
               </div>
 
-              {/* CEP com Busca Automática */}
+              {/* CEP com Busca Automática & Fallback Manual */}
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">
                     CEP *
                   </label>
-                  {loadingCep && (
-                    <span className="text-[10px] text-yellow-600 flex items-center gap-1 font-semibold">
-                      <Loader2 className="w-3 h-3 animate-spin" /> Buscando endereço...
+                  {loadingCep ? (
+                    <span className="text-[10px] text-yellow-600 dark:text-yellow-400 flex items-center gap-1 font-semibold">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Consultando ViaCEP...
                     </span>
-                  )}
+                  ) : cepStatus === 'valid' ? (
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-bold">
+                      <CheckCircle2 className="w-3 h-3" /> Preenchido via CEP
+                    </span>
+                  ) : cepStatus === 'fallback' || cepWarning ? (
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1 font-bold">
+                      <AlertTriangle className="w-3 h-3" /> Preenchimento manual
+                    </span>
+                  ) : cepError ? (
+                    <span className="text-[10px] text-red-500 flex items-center gap-1 font-bold">
+                      <AlertCircle className="w-3 h-3" /> Incompleto
+                    </span>
+                  ) : null}
                 </div>
                 <input
                   type="text"
@@ -658,10 +901,49 @@ export function Store({ onChangeTab }: StoreProps) {
                   value={cep}
                   onChange={(e) => handleCepChange(e.target.value)}
                   placeholder="00000-000"
-                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30 font-mono"
+                  className={cn(
+                    "w-full bg-gray-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white font-mono transition-all",
+                    cepError
+                      ? "border-red-500 bg-red-50/40 dark:bg-red-950/20 focus:ring-2 focus:ring-red-500/30"
+                      : cepStatus === 'fallback' || cepWarning
+                      ? "border-amber-400 dark:border-amber-500/50 bg-amber-50/20 dark:bg-amber-950/10 focus:ring-2 focus:ring-amber-500/30"
+                      : cepStatus === 'valid'
+                      ? "border-emerald-500/50 dark:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20"
+                      : "border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-yellow-500/30"
+                  )}
                   required
                 />
+                {cepWarning && (
+                  <div className="text-[11px] text-amber-800 dark:text-amber-300 font-medium mt-1.5 flex items-center gap-1.5 bg-amber-50 dark:bg-amber-950/40 p-2.5 rounded-xl border border-amber-200 dark:border-amber-900/50">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <span>{cepWarning}</span>
+                  </div>
+                )}
+                {cepError && (
+                  <p className="text-[11px] text-red-500 font-medium mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    <span>{cepError}</span>
+                  </p>
+                )}
               </div>
+
+              {/* Barra Informativa se campos foram bloqueados pelo ViaCEP com opção de editar */}
+              {isAddressLocked && (
+                <div className="flex items-center justify-between text-[11px] text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-2 rounded-xl border border-emerald-200/80 dark:border-emerald-900/40">
+                  <div className="flex items-center gap-1.5 font-semibold">
+                    <Lock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Endereço preenchido via CEP</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddressLocked(false)}
+                    className="text-xs text-yellow-700 dark:text-yellow-400 font-bold hover:underline cursor-pointer flex items-center gap-1 shrink-0 ml-2"
+                  >
+                    <Unlock className="w-3 h-3" />
+                    <span>Editar</span>
+                  </button>
+                </div>
+              )}
 
               {/* Endereço */}
               <div className="grid grid-cols-3 gap-2">
@@ -672,11 +954,26 @@ export function Store({ onChangeTab }: StoreProps) {
                   <input
                     type="text"
                     value={street}
-                    onChange={(e) => setStreet(e.target.value)}
+                    readOnly={isAddressLocked}
+                    onChange={(e) => {
+                      setStreet(e.target.value);
+                      if (e.target.value.trim()) setStreetError('');
+                    }}
                     placeholder="Rua das Flores"
-                    className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    className={cn(
+                      "w-full border rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white transition-all",
+                      isAddressLocked 
+                        ? "bg-gray-100/80 dark:bg-slate-800/80 text-gray-600 dark:text-gray-300 cursor-default" 
+                        : "bg-gray-50 dark:bg-slate-800",
+                      streetError
+                        ? "border-red-500 bg-red-50/40 dark:bg-red-950/20 focus:ring-2 focus:ring-red-500/30"
+                        : "border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-yellow-500/30"
+                    )}
                     required
                   />
+                  {streetError && (
+                    <p className="text-[10px] text-red-500 font-medium mt-0.5">{streetError}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
@@ -685,11 +982,22 @@ export function Store({ onChangeTab }: StoreProps) {
                   <input
                     type="text"
                     value={number}
-                    onChange={(e) => setNumber(e.target.value)}
+                    onChange={(e) => {
+                      setNumber(e.target.value);
+                      if (e.target.value.trim()) setNumberError('');
+                    }}
                     placeholder="123"
-                    className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    className={cn(
+                      "w-full bg-gray-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white transition-all",
+                      numberError
+                        ? "border-red-500 bg-red-50/40 dark:bg-red-950/20 focus:ring-2 focus:ring-red-500/30"
+                        : "border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-yellow-500/30"
+                    )}
                     required
                   />
+                  {numberError && (
+                    <p className="text-[10px] text-red-500 font-medium mt-0.5">{numberError}</p>
+                  )}
                 </div>
               </div>
 
@@ -713,11 +1021,26 @@ export function Store({ onChangeTab }: StoreProps) {
                   <input
                     type="text"
                     value={neighborhood}
-                    onChange={(e) => setNeighborhood(e.target.value)}
+                    readOnly={isAddressLocked}
+                    onChange={(e) => {
+                      setNeighborhood(e.target.value);
+                      if (e.target.value.trim()) setNeighborhoodError('');
+                    }}
                     placeholder="Centro"
-                    className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    className={cn(
+                      "w-full border rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white transition-all",
+                      isAddressLocked 
+                        ? "bg-gray-100/80 dark:bg-slate-800/80 text-gray-600 dark:text-gray-300 cursor-default" 
+                        : "bg-gray-50 dark:bg-slate-800",
+                      neighborhoodError
+                        ? "border-red-500 bg-red-50/40 dark:bg-red-950/20 focus:ring-2 focus:ring-red-500/30"
+                        : "border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-yellow-500/30"
+                    )}
                     required
                   />
+                  {neighborhoodError && (
+                    <p className="text-[10px] text-red-500 font-medium mt-0.5">{neighborhoodError}</p>
+                  )}
                 </div>
               </div>
 
@@ -729,11 +1052,26 @@ export function Store({ onChangeTab }: StoreProps) {
                   <input
                     type="text"
                     value={city}
-                    onChange={(e) => setCity(e.target.value)}
+                    readOnly={isAddressLocked}
+                    onChange={(e) => {
+                      setCity(e.target.value);
+                      if (e.target.value.trim()) setCityError('');
+                    }}
                     placeholder="São Paulo"
-                    className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    className={cn(
+                      "w-full border rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white transition-all",
+                      isAddressLocked 
+                        ? "bg-gray-100/80 dark:bg-slate-800/80 text-gray-600 dark:text-gray-300 cursor-default" 
+                        : "bg-gray-50 dark:bg-slate-800",
+                      cityError
+                        ? "border-red-500 bg-red-50/40 dark:bg-red-950/20 focus:ring-2 focus:ring-red-500/30"
+                        : "border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-yellow-500/30"
+                    )}
                     required
                   />
+                  {cityError && (
+                    <p className="text-[10px] text-red-500 font-medium mt-0.5">{cityError}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
@@ -743,20 +1081,41 @@ export function Store({ onChangeTab }: StoreProps) {
                     type="text"
                     maxLength={2}
                     value={state}
-                    onChange={(e) => setState(e.target.value.toUpperCase())}
+                    readOnly={isAddressLocked}
+                    onChange={(e) => {
+                      const clean = e.target.value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 2);
+                      setState(clean);
+                      if (clean.length === 2) setStateError('');
+                    }}
                     placeholder="SP"
-                    className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30 font-mono uppercase"
+                    className={cn(
+                      "w-full border rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white font-mono uppercase transition-all text-center",
+                      isAddressLocked 
+                        ? "bg-gray-100/80 dark:bg-slate-800/80 text-gray-600 dark:text-gray-300 cursor-default" 
+                        : "bg-gray-50 dark:bg-slate-800",
+                      stateError
+                        ? "border-red-500 bg-red-50/40 dark:bg-red-950/20 focus:ring-2 focus:ring-red-500/30"
+                        : "border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-yellow-500/30"
+                    )}
                     required
                   />
+                  {stateError && (
+                    <p className="text-[10px] text-red-500 font-medium mt-0.5 text-center">{stateError}</p>
+                  )}
                 </div>
               </div>
 
-              {/* Botão de Finalização */}
+              {/* Botão de Finalização & Travas de Segurança */}
               <div className="pt-2">
                 <button
                   type="submit"
-                  disabled={processingCheckout}
-                  className="w-full py-3.5 bg-yellow-500 hover:bg-yellow-600 text-white font-black text-sm rounded-2xl shadow-md shadow-yellow-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                  disabled={!isFormValid || processingCheckout}
+                  className={cn(
+                    "w-full py-3.5 font-black text-sm rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 select-none",
+                    isFormValid && !processingCheckout
+                      ? "bg-yellow-500 hover:bg-yellow-600 text-white shadow-yellow-500/25 cursor-pointer active:scale-98"
+                      : "bg-gray-200 dark:bg-slate-800 text-gray-400 dark:text-gray-500 cursor-not-allowed shadow-none opacity-80"
+                  )}
                 >
                   {processingCheckout ? (
                     <>
@@ -770,9 +1129,18 @@ export function Store({ onChangeTab }: StoreProps) {
                     </>
                   )}
                 </button>
-                <p className="text-[10px] text-gray-400 text-center mt-2">
-                  🔒 Checkout seguro processado pelo Mercado Pago. Aceita PIX e Cartão em até 12x.
-                </p>
+
+                {!isFormValid ? (
+                  <div className="flex items-center justify-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 p-2 rounded-xl border border-amber-200 dark:border-amber-900/40 mt-2.5 text-center">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>Preencha todos os campos obrigatórios (*) com dados válidos para prosseguir.</span>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-gray-400 text-center mt-2 flex items-center justify-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Checkout seguro Mercado Pago. Aceita PIX e Cartão em até 12x.</span>
+                  </p>
+                )}
               </div>
             </form>
           </div>

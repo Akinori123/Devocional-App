@@ -46,6 +46,8 @@ export interface StoreOrder {
   trackingCode?: string;
   deliveryAddress?: StoreDeliveryAddress;
   paymentId?: string;
+  deliveredAt?: string;
+  autoDeliveredViaCron?: boolean;
   createdAt: string;
   updatedAt: string;
 }

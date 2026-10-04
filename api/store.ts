@@ -85,15 +85,28 @@ export async function handleGetStoreOrders(req: Request, res: Response) {
   try {
     const userId = req.query.userId as string | undefined;
     const firestore = getFirestore();
-    let queryRef: FirebaseFirestore.Query = firestore.collection('store_orders');
+    let snap: FirebaseFirestore.QuerySnapshot;
+
     if (userId) {
-      queryRef = queryRef.where('userId', '==', userId);
+      // Query apenas por userId para não exigir índice composto (evita 9 FAILED_PRECONDITION)
+      snap = await firestore.collection('store_orders').where('userId', '==', userId).get();
+    } else {
+      // Consulta admin de todos os pedidos
+      snap = await firestore.collection('store_orders').get();
     }
-    const snap = await queryRef.orderBy('createdAt', 'desc').get();
+
     const orders: any[] = [];
     snap.forEach((doc) => {
       orders.push({ orderId: doc.id, ...doc.data() });
     });
+
+    // Ordenação garantida em memória pelo mais recente (createdAt decrescente)
+    orders.sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
+
     return res.json({ success: true, orders });
   } catch (err: any) {
     console.error('[API Store] Error fetching orders:', err);
@@ -317,6 +330,11 @@ export async function handleUpdateStoreOrderStatus(req: Request, res: Response) 
       updatePayload.shippedAt = new Date().toISOString();
     }
 
+    const isTransitionToDelivered = (newStatus === 'Entregue');
+    if (isTransitionToDelivered && !existingOrder.deliveredAt) {
+      updatePayload.deliveredAt = new Date().toISOString();
+    }
+
     await orderRef.update(updatePayload);
 
     let pushSent = false;
@@ -538,3 +556,164 @@ export async function notifyCustomerOrderShipped(order: {
 
   return { pushSent, emailSent };
 }
+
+/**
+ * 4. Criar Categoria da Loja (Server-side com Firebase Admin)
+ */
+export async function handleCreateStoreCategory(req: Request, res: Response) {
+  try {
+    const { name, order } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'Nome da categoria é obrigatório' });
+    }
+    const firestore = getFirestore();
+    const categoryId = `cat_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const categoryData = {
+      id: categoryId,
+      name: name.trim(),
+      order: Number(order) || 0
+    };
+    await firestore.collection('store_categories').doc(categoryId).set(categoryData);
+    return res.json({ success: true, category: categoryData });
+  } catch (err: any) {
+    console.error('[API Store] Error creating category:', err);
+    return res.status(500).json({ error: err?.message || 'Falha ao criar categoria' });
+  }
+}
+
+/**
+ * 4.1 Atualizar Categoria da Loja
+ */
+export async function handleUpdateStoreCategory(req: Request, res: Response) {
+  try {
+    const id = req.params.id || req.body.id;
+    const { name, order } = req.body;
+    if (!id) {
+      return res.status(400).json({ error: 'ID da categoria é obrigatório' });
+    }
+    const firestore = getFirestore();
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = String(name).trim();
+    if (order !== undefined) updateData.order = Number(order) || 0;
+
+    await firestore.collection('store_categories').doc(id).update(updateData);
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[API Store] Error updating category:', err);
+    return res.status(500).json({ error: err?.message || 'Falha ao atualizar categoria' });
+  }
+}
+
+/**
+ * 4.2 Excluir Categoria da Loja
+ */
+export async function handleDeleteStoreCategory(req: Request, res: Response) {
+  try {
+    const id = req.params.id || req.body.id;
+    if (!id) {
+      return res.status(400).json({ error: 'ID da categoria é obrigatório' });
+    }
+    const firestore = getFirestore();
+    await firestore.collection('store_categories').doc(id).delete();
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[API Store] Error deleting category:', err);
+    return res.status(500).json({ error: err?.message || 'Falha ao excluir categoria' });
+  }
+}
+
+/**
+ * 5. Criar Produto da Loja (Server-side com Firebase Admin)
+ */
+export async function handleCreateStoreProduct(req: Request, res: Response) {
+  try {
+    const { title, description, price, stock, categoryId, isActive, images } = req.body;
+    if (!title || typeof title !== 'string' || !title.trim()) {
+      return res.status(400).json({ error: 'Título do produto é obrigatório' });
+    }
+    const firestore = getFirestore();
+    const productId = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const now = new Date().toISOString();
+    const productData = {
+      id: productId,
+      title: title.trim(),
+      description: (description || '').trim(),
+      price: Number(price) || 0,
+      stock: Number(stock) || 0,
+      categoryId: categoryId || '',
+      isActive: isActive !== false,
+      images: Array.isArray(images) ? images : [],
+      createdAt: now,
+      updatedAt: now
+    };
+    await firestore.collection('store_products').doc(productId).set(productData);
+    return res.json({ success: true, product: productData });
+  } catch (err: any) {
+    console.error('[API Store] Error creating product:', err);
+    return res.status(500).json({ error: err?.message || 'Falha ao criar produto' });
+  }
+}
+
+/**
+ * 5.1 Atualizar Produto da Loja
+ */
+export async function handleUpdateStoreProduct(req: Request, res: Response) {
+  try {
+    const id = req.params.id || req.body.id;
+    if (!id) {
+      return res.status(400).json({ error: 'ID do produto é obrigatório' });
+    }
+    const firestore = getFirestore();
+    const updateData: any = {
+      ...req.body,
+      updatedAt: new Date().toISOString()
+    };
+    delete updateData.id;
+
+    await firestore.collection('store_products').doc(id).update(updateData);
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[API Store] Error updating product:', err);
+    return res.status(500).json({ error: err?.message || 'Falha ao atualizar produto' });
+  }
+}
+
+/**
+ * 5.2 Excluir Produto da Loja (Server-side com Firebase Admin)
+ * Se permanent=true ou se não existirem pedidos vinculados, remove o produto definitivamente do Firestore.
+ * Se tiver pedidos, faz soft delete (isActive: false) para preservar histórico de vendas.
+ */
+export async function handleDeleteStoreProduct(req: Request, res: Response) {
+  try {
+    const id = req.params.id || req.body.id;
+    if (!id) {
+      return res.status(400).json({ error: 'ID do produto é obrigatório' });
+    }
+    const permanent = req.query.permanent === 'true' || req.body?.permanent === true;
+    const firestore = getFirestore();
+
+    // Verificar se existem pedidos vinculados
+    const ordersSnap = await firestore
+      .collection('store_orders')
+      .where('productId', '==', id)
+      .limit(1)
+      .get();
+
+    if (ordersSnap.empty || permanent) {
+      // Exclui permanentemente do Firestore
+      await firestore.collection('store_products').doc(id).delete();
+      return res.json({ success: true, mode: 'deleted_permanently' });
+    } else {
+      // Possui pedidos históricos: apenas desativa da vitrine
+      await firestore.collection('store_products').doc(id).update({
+        isActive: false,
+        updatedAt: new Date().toISOString()
+      });
+      return res.json({ success: true, mode: 'soft_deleted' });
+    }
+  } catch (err: any) {
+    console.error('[API Store] Error deleting product:', err);
+    return res.status(500).json({ error: err?.message || 'Falha ao excluir produto' });
+  }
+}
+

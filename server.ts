@@ -31,4 +31,13 @@ async function setupVite() {
 
 setupVite();
 
+// Agendamento diário em segundo plano para verificação de entregas dos Correios (1x ao dia)
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+setTimeout(() => {
+  fetch('http://127.0.0.1:3000/api/cron/check-deliveries', { method: 'POST' }).catch(() => {});
+  setInterval(() => {
+    fetch('http://127.0.0.1:3000/api/cron/check-deliveries', { method: 'POST' }).catch(() => {});
+  }, ONE_DAY_MS);
+}, 20000);
+
 export default app;
