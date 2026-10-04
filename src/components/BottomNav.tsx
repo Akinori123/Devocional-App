@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, Book, Map, User, ShieldAlert } from 'lucide-react';
+import { Home, Book, Map, User, ShieldAlert, ShoppingBag } from 'lucide-react';
 import { TabType } from '../types';
 import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
@@ -70,6 +70,7 @@ export function BottomNav({ currentTab, onChangeTab }: BottomNavProps) {
     { id: 'home' as TabType, label: 'Hoje', icon: Home },
     { id: 'bible' as TabType, label: 'Bíblia', icon: Book },
     { id: 'journey' as TabType, label: 'Jornada', icon: Map },
+    { id: 'store' as TabType, label: 'Loja', icon: ShoppingBag },
     { id: 'profile' as TabType, label: 'Perfil', icon: User },
   ];
 

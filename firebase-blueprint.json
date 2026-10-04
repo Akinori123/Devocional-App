@@ -110,6 +110,49 @@
         { "name": "createdAt", "type": "timestamp" }
       ],
       "description": "User Bible highlights subcollection under users/{userId}/highlights with color and verse reference."
+    },
+    {
+      "name": "store_categories",
+      "documentId": "categoryId",
+      "fields": [
+        { "name": "id", "type": "string" },
+        { "name": "name", "type": "string" },
+        { "name": "order", "type": "number" }
+      ],
+      "description": "Categories for store products display and ordering."
+    },
+    {
+      "name": "store_products",
+      "documentId": "productId",
+      "fields": [
+        { "name": "id", "type": "string" },
+        { "name": "title", "type": "string" },
+        { "name": "description", "type": "string" },
+        { "name": "price", "type": "number" },
+        { "name": "images", "type": "array" },
+        { "name": "categoryId", "type": "string" },
+        { "name": "isActive", "type": "boolean" },
+        { "name": "stock", "type": "number" }
+      ],
+      "description": "Physical products catalog with stock and multi-image storage."
+    },
+    {
+      "name": "store_orders",
+      "documentId": "orderId",
+      "fields": [
+        { "name": "orderId", "type": "string" },
+        { "name": "userId", "type": "string" },
+        { "name": "userEmail", "type": "string" },
+        { "name": "userName", "type": "string" },
+        { "name": "productId", "type": "string" },
+        { "name": "productName", "type": "string" },
+        { "name": "totalPrice", "type": "number" },
+        { "name": "status", "type": "string" },
+        { "name": "trackingCode", "type": "string" },
+        { "name": "createdAt", "type": "string" },
+        { "name": "updatedAt", "type": "string" }
+      ],
+      "description": "E-commerce orders with Mercado Pago reference, status workflow and delivery tracking."
     }
   ]
 }

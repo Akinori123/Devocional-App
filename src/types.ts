@@ -1,4 +1,54 @@
-export type TabType = 'home' | 'bible' | 'journey' | 'profile' | 'videoHistory' | 'usersAdmin';
+export type TabType = 'home' | 'bible' | 'journey' | 'store' | 'profile' | 'videoHistory' | 'usersAdmin';
+
+export interface StoreCategory {
+  id: string;
+  name: string;
+  order: number;
+}
+
+export interface StoreProduct {
+  id: string;
+  title: string;
+  description: string;
+  price: number;
+  images: string[];
+  categoryId: string;
+  isActive: boolean;
+  stock: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type StoreOrderStatus = 'Aguardando Pagamento' | 'Preparando Envio' | 'Enviado' | 'Entregue';
+
+export interface StoreDeliveryAddress {
+  fullName?: string;
+  phone?: string;
+  cep?: string;
+  street?: string;
+  number?: string;
+  complement?: string;
+  neighborhood?: string;
+  city?: string;
+  state?: string;
+}
+
+export interface StoreOrder {
+  orderId: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  productId: string;
+  productName: string;
+  productImage?: string;
+  totalPrice: number;
+  status: StoreOrderStatus;
+  trackingCode?: string;
+  deliveryAddress?: StoreDeliveryAddress;
+  paymentId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface BibleLastRead {
   bookId: string;

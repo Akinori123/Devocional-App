@@ -10,6 +10,7 @@ import { SubscriptionLandingModal } from './components/subscription/Subscription
 import { Home } from './pages/Home';
 import { Bible } from './pages/Bible';
 import { Journey } from './pages/Journey';
+import { Store } from './pages/Store';
 import { Profile } from './pages/Profile';
 import { Onboarding } from './pages/Onboarding';
 import { VideoHistory } from './pages/VideoHistory';
@@ -25,7 +26,7 @@ import { Loader2, Trash2 } from 'lucide-react';
 function AppContent() {
   useActiveSessionTracker();
   const [currentTab, setCurrentTab] = useState<TabType>('home');
-  const [profileSubTab, setProfileSubTab] = useState<'diary' | 'verses' | 'videos' | 'subscription' | 'settings'>('diary');
+  const [profileSubTab, setProfileSubTab] = useState<'diary' | 'verses' | 'videos' | 'subscription' | 'settings' | 'orders'>('diary');
   const [bibleSelection, setBibleSelection] = useState<{ bookId: string; chapter: number; verse: number } | null>(null);
 
   const { user, profile, loading, logout } = useAuth();
@@ -66,7 +67,7 @@ function AppContent() {
     };
   }, [user?.uid, user?.email, profile?.email]);
 
-  const handleTabChange = useCallback((tab: TabType, subTab?: 'diary' | 'verses' | 'videos' | 'subscription' | 'settings' | 'admin') => {
+  const handleTabChange = useCallback((tab: TabType, subTab?: 'diary' | 'verses' | 'videos' | 'subscription' | 'settings' | 'orders' | 'admin') => {
     if (tab === 'profile') {
       if (subTab && subTab !== 'admin') {
         setProfileSubTab(subTab);
@@ -100,7 +101,7 @@ function AppContent() {
       const chapterParam = params.get('chapter');
       const verseParam = params.get('verse');
 
-      if (tabParam && ['home', 'bible', 'journey', 'profile', 'videoHistory', 'usersAdmin'].includes(tabParam)) {
+      if (tabParam && ['home', 'bible', 'journey', 'store', 'profile', 'videoHistory', 'usersAdmin'].includes(tabParam)) {
         handleTabChange(tabParam, subTabParam);
         handledDeepLinkRef.current = true;
       }
@@ -181,6 +182,8 @@ function AppContent() {
         return <Bible initialSelection={bibleSelection} clearInitialSelection={handleClearBibleSelection} onChangeTab={handleTabChange} />;
       case 'journey':
         return <Journey onChangeTab={handleTabChange} onNavigateToBible={handleNavigateToBible} />;
+      case 'store':
+        return <Store onChangeTab={handleTabChange} />;
       case 'profile':
         return <Profile initialTab={profileSubTab} onChangeTab={handleTabChange} onNavigateToBible={handleNavigateToBible} />;
       case 'videoHistory':

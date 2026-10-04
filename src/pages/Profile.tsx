@@ -5,14 +5,15 @@ import { SavedVersesTab } from '../components/profile/SavedVersesTab';
 import { SubscriptionTab } from '../components/profile/SubscriptionTab';
 import { FavoriteVideosTab } from '../components/profile/FavoriteVideosTab';
 import { SettingsTab } from '../components/profile/SettingsTab';
+import { MyOrdersTab } from '../components/profile/MyOrdersTab';
 import { VipVideoBanner } from '../components/video/VipVideoBanner';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
-import { MessageCircle, Mail, Heart } from 'lucide-react';
+import { MessageCircle, Mail, Heart, Package } from 'lucide-react';
 import { TabType } from '../types';
 import { useDragScroll } from '../hooks/useDragScroll';
 
-export type ProfileTab = 'diary' | 'verses' | 'videos' | 'subscription' | 'settings';
+export type ProfileTab = 'diary' | 'verses' | 'videos' | 'subscription' | 'settings' | 'orders';
 
 interface ProfileProps {
   initialTab?: ProfileTab;
@@ -120,6 +121,20 @@ export function Profile({ initialTab = 'diary', onChangeTab, onNavigateToBible }
               <div className="absolute bottom-0 left-1 right-1 h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
             )}
           </button>
+
+          <button
+            onClick={() => setActiveTab('orders')}
+            className={cn(
+              "flex-1 pb-2.5 pt-1 text-center text-xs sm:text-sm font-semibold transition-colors relative whitespace-nowrap px-1 cursor-pointer flex items-center justify-center gap-1",
+              activeTab === 'orders' ? "text-yellow-600 dark:text-yellow-400 font-bold" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+            )}
+          >
+            <Package className="w-3.5 h-3.5 shrink-0" />
+            <span>Pedidos</span>
+            {activeTab === 'orders' && (
+              <div className="absolute bottom-0 left-1 right-1 h-0.5 bg-yellow-500 dark:bg-yellow-400 rounded-t-full" />
+            )}
+          </button>
         </div>
       </div>
 
@@ -140,6 +155,9 @@ export function Profile({ initialTab = 'diary', onChangeTab, onNavigateToBible }
           )}
           {activeTab === 'subscription' && <SubscriptionTab />}
           {activeTab === 'settings' && <SettingsTab />}
+          {activeTab === 'orders' && (
+            <MyOrdersTab onGoToStore={() => onChangeTab?.('store')} />
+          )}
         </div>
         
         {/* Support Section */}

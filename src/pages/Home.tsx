@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { BookOpen, PlayCircle, Bookmark, Flame, AlertCircle, Video, ChevronRight, ChevronLeft, Sun, Moon, Sunrise, Music, History, Flower2, Crown, Lock, X, Sprout, Trees, Sparkles, CheckCircle2, RotateCcw, Target, Coins } from 'lucide-react';
+import { BookOpen, PlayCircle, Bookmark, Flame, AlertCircle, Video, ChevronRight, ChevronLeft, Sun, Moon, Sunrise, Music, History, Flower2, Crown, Lock, X, Sprout, Trees, Sparkles, CheckCircle2, RotateCcw, Target, Coins, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useDevotionals } from '../context/DevotionalContext';
 import { sendEmailVerification } from 'firebase/auth';
@@ -451,6 +451,31 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
           )}
         </section>
         
+        {/* Banner Loja Florescer */}
+        <section>
+          <div 
+            onClick={() => onChangeTab && onChangeTab('store')}
+            className="flex items-center justify-between bg-gradient-to-r from-amber-500 via-yellow-500 to-yellow-600 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 group cursor-pointer active:scale-99"
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="w-11 h-11 bg-white/20 backdrop-blur-xs rounded-2xl flex items-center justify-center shrink-0 text-white shadow-xs">
+                <ShoppingBag className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="bg-white/20 text-white text-[9px] font-black uppercase px-2 py-0.2 rounded-full">Novo</span>
+                  <h3 className="text-white font-black text-sm sm:text-base leading-tight">Loja Florescer</h3>
+                </div>
+                <p className="text-yellow-50 text-xs sm:text-sm mt-0.5">Cadernos devocionais, livros e papelaria cristã</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 text-white font-bold text-xs bg-white/15 px-3 py-1.5 rounded-xl group-hover:bg-white/25 transition-colors shrink-0">
+              <span className="hidden xs:inline">Conhecer</span>
+              <ChevronRight className="w-4 h-4" />
+            </div>
+          </div>
+        </section>
+
         {/* Spotify Playlist Banner */}
         <section>
           <a 

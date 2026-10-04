@@ -11,6 +11,14 @@ import { getMessaging } from 'firebase-admin/messaging';
 import { MercadoPagoConfig, Preference, PreApproval, Payment } from 'mercadopago';
 import dailyPushHandler from './cron/daily-push';
 import coinsReminderHandler from './cron/coins-reminder';
+import { 
+  handleCreateStorePreference, 
+  handleUpdateStoreOrderStatus, 
+  handleProcessStoreOrderPayment,
+  handleGetStoreCategories,
+  handleGetStoreProducts,
+  handleGetStoreOrders
+} from './store';
 
 dotenv.config();
 
@@ -1091,6 +1099,14 @@ const handleMercadoPagoWebhook = async (req: express.Request, res: express.Respo
           const paymentInstance = new Payment(client);
           const paymentData = await paymentInstance.get({ id: Number(paymentId) });
           
+          // Isolamento Estrito: Se for pedido de e-commerce da Loja Florescer, processa com idempotência e baixa de estoque
+          if (paymentData.status === 'approved') {
+            const isStore = await handleProcessStoreOrderPayment(paymentData, firestore);
+            if (isStore) {
+              return res.status(200).send("OK");
+            }
+          }
+
           const userId = (paymentData.metadata as any)?.user_id || paymentData.external_reference || (paymentData.payer as any)?.email;
           if (userId) {
             if (paymentData.status === 'approved') {
@@ -1156,6 +1172,13 @@ app.post("/api/webhook/mercadopago", handleMercadoPagoWebhook);
 app.post("/api/mercadopago/webhook", handleMercadoPagoWebhook);
 app.get("/api/webhook/mercadopago", (req, res) => res.status(200).json({ status: "ok", message: "Mercado Pago Webhook endpoint is live and ready" }));
 app.get("/api/mercadopago/webhook", (req, res) => res.status(200).json({ status: "ok", message: "Mercado Pago Webhook endpoint is live" }));
+
+// Módulo Loja Florescer (E-commerce / Dropshipping)
+app.get("/api/store/categories", handleGetStoreCategories);
+app.get("/api/store/products", handleGetStoreProducts);
+app.get("/api/store/orders", handleGetStoreOrders);
+app.post("/api/store/create-preference", handleCreateStorePreference);
+app.post("/api/store/orders/update-status", handleUpdateStoreOrderStatus);
 
 // Endpoint para Listagem de Usuários no Painel Administrativo com Auto-Recuperação de E-mails via Firebase Auth (Data Patch)
 app.get("/api/admin/users", async (req, res) => {

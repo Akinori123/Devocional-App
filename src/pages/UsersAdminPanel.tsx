@@ -29,11 +29,13 @@ import {
   Plus,
   Minus,
   Shield, 
-  ShieldCheck
+  ShieldCheck,
+  ShoppingBag
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { AdminTab } from '../components/profile/AdminTab';
+import { StoreAdminTab } from '../components/admin/StoreAdminTab';
 
 interface UsersAdminPanelProps {
   onChangeTab: (tab: TabType) => void;
@@ -56,7 +58,7 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
   const [coinsAmountInput, setCoinsAmountInput] = useState<string>('');
   const [savingCoins, setSavingCoins] = useState(false);
   const [currentView, setCurrentView] = useState<'active' | 'trash'>('active');
-  const [mainTab, setMainTab] = useState<'users' | 'content'>('users');
+  const [mainTab, setMainTab] = useState<'users' | 'content' | 'store'>('users');
   const toast = useToast();
 
   useEffect(() => {
@@ -418,40 +420,52 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
           <div>
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">Central Administrativa</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {mainTab === 'users' ? `${users.length} usuários registrados` : 'Gerencie vídeos e devocionais'}
+              {mainTab === 'users' ? `${users.length} usuários registrados` : mainTab === 'content' ? 'Gerencie vídeos e devocionais' : 'Gestão de produtos, categorias e pedidos da Loja'}
             </p>
           </div>
         </div>
 
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3.5 rounded-xl text-red-800 dark:text-red-200 text-xs sm:text-sm mb-4">
           <p className="font-bold mb-0.5">Painel Restrito & Alertas de Venda</p>
-          <p>Controle de usuários, conteúdo e disparo de notificações automáticas via webhook.</p>
+          <p>Controle de usuários, conteúdo, catálogo da loja e notificações automáticas.</p>
         </div>
 
-        <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-xl shadow-inner">
+        <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-xl shadow-inner gap-1">
           <button
             onClick={() => setMainTab('users')}
             className={cn(
-              "flex-1 py-2.5 flex items-center justify-center gap-2 text-sm font-semibold rounded-lg transition-all",
+              "flex-1 min-w-0 py-2.5 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-semibold rounded-lg transition-all",
               mainTab === 'users'
-                ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm"
+                ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm font-bold"
                 : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
             )}
           >
-            <Users className="w-4 h-4" />
-            Gestão de Usuários
+            <Users className="w-4 h-4 shrink-0" />
+            <span className="truncate"><span className="hidden sm:inline">Gestão de </span>Usuários</span>
           </button>
           <button
             onClick={() => setMainTab('content')}
             className={cn(
-              "flex-1 py-2.5 flex items-center justify-center gap-2 text-sm font-semibold rounded-lg transition-all",
+              "flex-1 min-w-0 py-2.5 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-semibold rounded-lg transition-all",
               mainTab === 'content'
-                ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm"
+                ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm font-bold"
                 : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
             )}
           >
-            <PlaySquare className="w-4 h-4" />
-            Gestão de Conteúdo
+            <PlaySquare className="w-4 h-4 shrink-0" />
+            <span className="truncate"><span className="hidden sm:inline">Gestão de </span>Conteúdo</span>
+          </button>
+          <button
+            onClick={() => setMainTab('store')}
+            className={cn(
+              "flex-1 min-w-0 py-2.5 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-semibold rounded-lg transition-all",
+              mainTab === 'store'
+                ? "bg-white dark:bg-slate-700 text-yellow-600 dark:text-yellow-400 shadow-sm font-bold"
+                : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+            )}
+          >
+            <ShoppingBag className="w-4 h-4 text-yellow-500 shrink-0" />
+            <span className="truncate"><span className="hidden sm:inline">Gestão da </span>Loja</span>
           </button>
         </div>
       </div>
@@ -499,7 +513,9 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
 
       {/* Content Area - Natural Page Scrolling */}
       <div className="p-4 space-y-4">
-        {mainTab === 'content' ? (
+        {mainTab === 'store' ? (
+          <StoreAdminTab />
+        ) : mainTab === 'content' ? (
           <AdminTab />
         ) : (
           <>
