@@ -7,6 +7,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { BottomNav } from './components/BottomNav';
 import { TourGuide } from './components/TourGuide';
 import { SubscriptionLandingModal } from './components/subscription/SubscriptionLandingModal';
+import { StoreOrderSuccessModal } from './components/store/StoreOrderSuccessModal';
 import { Home } from './pages/Home';
 import { Bible } from './pages/Bible';
 import { Journey } from './pages/Journey';
@@ -150,6 +151,7 @@ function AppContent() {
       <>
         <Onboarding />
         <SubscriptionLandingModal />
+        <StoreOrderSuccessModal />
       </>
     );
   }
@@ -196,13 +198,12 @@ function AppContent() {
   };
 
   return (
-    <div className={`flex flex-col min-h-screen bg-white dark:bg-slate-900 mx-auto relative shadow-2xl transition-all duration-200 ${
-      currentTab === 'usersAdmin' ? 'w-full max-w-md lg:max-w-4xl xl:max-w-5xl' : 'w-full max-w-md'
-    }`}>
+    <div className="flex flex-col min-h-screen bg-white dark:bg-slate-900 mx-auto relative shadow-2xl transition-all duration-200 w-full max-w-md">
       {renderContent()}
       <BottomNav currentTab={currentTab} onChangeTab={handleTabChange} />
       <TourGuide onChangeTab={handleTabChange} />
       <SubscriptionLandingModal />
+      <StoreOrderSuccessModal onNavigateToOrders={() => handleTabChange('profile', 'orders')} />
     </div>
   );
 }

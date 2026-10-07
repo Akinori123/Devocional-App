@@ -25,7 +25,8 @@ import {
   ShieldCheck,
   Archive,
   Inbox,
-  History
+  History,
+  Save
 } from 'lucide-react';
 import { 
   StoreCategory, 
@@ -47,7 +48,9 @@ import {
   deleteProductImageFromStorage, 
   getStoreOrders, 
   updateStoreOrderStatusApi,
-  triggerCheckDeliveriesCron
+  triggerCheckDeliveriesCron,
+  deleteStoreOrder,
+  clearAllTestOrders
 } from '../../services/storeService';
 import { useToast } from '../../context/ToastContext';
 import { cn } from '../../lib/utils';
@@ -57,6 +60,8 @@ import { useDragScroll } from '../../hooks/useDragScroll';
 export function StoreAdminTab() {
   const toast = useToast();
   const [subTab, setSubTab] = useState<'categories' | 'products' | 'orders'>('products');
+  const { dragProps: storeSubTabsDragProps, hasDragged: storeSubTabsHasDragged } = useDragScroll<HTMLDivElement>();
+  const { dragProps: productFilterDragProps, hasDragged: productFilterHasDragged } = useDragScroll<HTMLDivElement>();
   const { dragProps: orderFilterDragProps, hasDragged: orderFilterHasDragged } = useDragScroll<HTMLDivElement>();
 
   // Categorias
@@ -86,6 +91,7 @@ export function StoreAdminTab() {
   const [isActive, setIsActive] = useState(true);
   const [images, setImages] = useState<string[]>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [savingProduct, setSavingProduct] = useState(false);
 
   // Pedidos
@@ -100,11 +106,48 @@ export function StoreAdminTab() {
   const [copiedTracking, setCopiedTracking] = useState<string | null>(null);
   const [isSyncingDeliveries, setIsSyncingDeliveries] = useState<boolean>(false);
 
-  // Modais de Exclusão Segura (100% compatível com iframe preview e mobile)
+  // Modais de Exclusão Segura e Edição de Pedidos (100% compatível com iframe preview e mobile)
   const [categoryToDelete, setCategoryToDelete] = useState<StoreCategory | null>(null);
   const [isDeletingCategory, setIsDeletingCategory] = useState(false);
   const [productToDelete, setProductToDelete] = useState<StoreProduct | null>(null);
   const [isDeletingProduct, setIsDeletingProduct] = useState(false);
+  const [orderToDelete, setOrderToDelete] = useState<StoreOrder | null>(null);
+  const [isDeletingOrder, setIsDeletingOrder] = useState(false);
+
+  // Modal de Edição Completa de Pedido
+  const [orderToEdit, setOrderToEdit] = useState<StoreOrder | null>(null);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const [editOrderForm, setEditOrderForm] = useState<{
+    status: StoreOrderStatus;
+    trackingCode: string;
+    userName: string;
+    userEmail: string;
+    street: string;
+    number: string;
+    complement: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+    cep: string;
+    phone: string;
+    totalPrice: number;
+    notes: string;
+  }>({
+    status: 'Aguardando Pagamento',
+    trackingCode: '',
+    userName: '',
+    userEmail: '',
+    street: '',
+    number: '',
+    complement: '',
+    neighborhood: '',
+    city: '',
+    state: '',
+    cep: '',
+    phone: '',
+    totalPrice: 0,
+    notes: ''
+  });
 
   useEffect(() => {
     loadCategories();
@@ -236,6 +279,8 @@ export function StoreAdminTab() {
     if (!files || files.length === 0) return;
 
     setUploadingImage(true);
+    setUploadProgress(0);
+
     try {
       const tempId = editingProduct ? editingProduct.id : `temp_${Date.now()}`;
       const newUrls: string[] = [];
@@ -246,16 +291,23 @@ export function StoreAdminTab() {
           toast.error(`Arquivo ${file.name} não é uma imagem válida.`);
           continue;
         }
-        const url = await uploadProductImage(file, tempId);
+        // Upload com compressão client-side (HTML5 Canvas 1200px/80%), timeout e progresso
+        const url = await uploadProductImage(file, tempId, (percent) => {
+          setUploadProgress(percent);
+        });
         newUrls.push(url);
       }
 
-      setImages((prev) => [...prev, ...newUrls]);
-      toast.success(`${newUrls.length} imagem(ns) carregada(s) com sucesso!`);
+      if (newUrls.length > 0) {
+        setImages((prev) => [...prev, ...newUrls]);
+        toast.success(`${newUrls.length} imagem(ns) carregada(s) com sucesso!`);
+      }
     } catch (err: any) {
-      toast.error(err?.message || 'Erro ao fazer upload da imagem.');
+      console.error('[Upload Error]:', err);
+      toast.error('Erro ao carregar a imagem. Tente novamente.');
     } finally {
       setUploadingImage(false);
+      setUploadProgress(null);
       e.target.value = '';
     }
   };
@@ -437,6 +489,102 @@ export function StoreAdminTab() {
     }
   };
 
+  // Gestão Completa de Pedidos: Edição e Exclusão com Confirmação
+  const handleOpenEditOrder = (order: StoreOrder) => {
+    setOrderToEdit(order);
+    setEditOrderForm({
+      status: order.status || 'Aguardando Pagamento',
+      trackingCode: order.trackingCode || '',
+      userName: order.userName || '',
+      userEmail: order.userEmail || '',
+      street: order.deliveryAddress?.street || '',
+      number: order.deliveryAddress?.number || '',
+      complement: order.deliveryAddress?.complement || '',
+      neighborhood: order.deliveryAddress?.neighborhood || '',
+      city: order.deliveryAddress?.city || '',
+      state: order.deliveryAddress?.state || '',
+      cep: order.deliveryAddress?.cep || '',
+      phone: order.deliveryAddress?.phone || '',
+      totalPrice: order.totalPrice || 0,
+      notes: (order as any).notes || ''
+    });
+  };
+
+  const handleSaveOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!orderToEdit) return;
+
+    setIsSavingOrder(true);
+    try {
+      const deliveryAddress = orderToEdit.deliveryAddress 
+        ? { ...orderToEdit.deliveryAddress } 
+        : {
+            fullName: editOrderForm.userName,
+            email: editOrderForm.userEmail,
+            street: editOrderForm.street,
+            number: editOrderForm.number,
+            complement: editOrderForm.complement,
+            neighborhood: editOrderForm.neighborhood,
+            city: editOrderForm.city,
+            state: editOrderForm.state,
+            cep: editOrderForm.cep,
+            phone: editOrderForm.phone
+          };
+
+      deliveryAddress.street = editOrderForm.street;
+      deliveryAddress.number = editOrderForm.number;
+      deliveryAddress.complement = editOrderForm.complement;
+      deliveryAddress.neighborhood = editOrderForm.neighborhood;
+      deliveryAddress.city = editOrderForm.city;
+      deliveryAddress.state = editOrderForm.state;
+      deliveryAddress.cep = editOrderForm.cep;
+      deliveryAddress.phone = editOrderForm.phone;
+      deliveryAddress.fullName = editOrderForm.userName;
+      deliveryAddress.email = editOrderForm.userEmail;
+
+      await updateStoreOrderStatusApi({
+        orderId: orderToEdit.orderId,
+        status: editOrderForm.status,
+        trackingCode: editOrderForm.trackingCode.trim().toUpperCase(),
+        userName: editOrderForm.userName,
+        userEmail: editOrderForm.userEmail,
+        deliveryAddress,
+        totalPrice: editOrderForm.totalPrice,
+        notes: editOrderForm.notes
+      });
+
+      toast.success(`Pedido #${orderToEdit.orderId} atualizado com sucesso!`);
+      setOrderToEdit(null);
+      loadOrders();
+    } catch (err: any) {
+      console.error('Erro ao salvar alterações do pedido:', err);
+      toast.error(err?.message || 'Falha ao atualizar pedido.');
+    } finally {
+      setIsSavingOrder(false);
+    }
+  };
+
+  // Exclusão Segura de Pedidos com Confirmação de Certeza
+  const handleDeleteOrder = (order: StoreOrder) => {
+    setOrderToDelete(order);
+  };
+
+  const handleConfirmDeleteOrder = async () => {
+    if (!orderToDelete) return;
+    setIsDeletingOrder(true);
+    try {
+      await deleteStoreOrder(orderToDelete.orderId);
+      toast.success(`Pedido #${orderToDelete.orderId} excluído com sucesso!`);
+      setOrderToDelete(null);
+      loadOrders();
+    } catch (err: any) {
+      console.error('Erro ao excluir pedido:', err);
+      toast.error(err?.message || 'Erro ao excluir pedido.');
+    } finally {
+      setIsDeletingOrder(false);
+    }
+  };
+
   const filteredProducts = products.filter(p => {
     const matchesSearch = 
       p.title.toLowerCase().includes(productSearch.toLowerCase()) ||
@@ -472,47 +620,62 @@ export function StoreAdminTab() {
 
   return (
     <div className="space-y-6">
-      {/* Sub-Tabs de Navegação da Loja */}
-      <div className="flex bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl sm:rounded-2xl p-1 sm:p-1.5 shadow-2xs gap-1 w-full">
+      {/* Sub-Tabs de Navegação da Loja com Rolagem Horizontal Suave e Arraste por Mouse no PC */}
+      <div 
+        {...storeSubTabsDragProps}
+        className="flex items-center gap-2 overflow-x-auto whitespace-nowrap scrollbar-none w-full px-1 py-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl sm:rounded-2xl shadow-2xs cursor-grab active:cursor-grabbing select-none touch-pan-x"
+      >
         <button
-          onClick={() => setSubTab('products')}
+          onClick={() => {
+            if (storeSubTabsHasDragged.current) return;
+            setSubTab('products');
+          }}
+          draggable={false}
           className={cn(
-            "flex-1 min-w-0 py-2 sm:py-2.5 px-1 sm:px-3 rounded-lg sm:rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer",
+            "flex-1 min-w-[110px] py-2 sm:py-2.5 px-3 rounded-lg sm:rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0 select-none",
             subTab === 'products'
               ? "bg-yellow-500 text-white shadow-md shadow-yellow-500/20"
               : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
           )}
         >
           <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-          <span className="truncate">Produtos</span>
+          <span>Produtos</span>
           <span className="text-[10px] sm:text-xs font-semibold opacity-80 shrink-0">({products.length})</span>
         </button>
 
         <button
-          onClick={() => setSubTab('categories')}
+          onClick={() => {
+            if (storeSubTabsHasDragged.current) return;
+            setSubTab('categories');
+          }}
+          draggable={false}
           className={cn(
-            "flex-1 min-w-0 py-2 sm:py-2.5 px-1 sm:px-3 rounded-lg sm:rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer",
+            "flex-1 min-w-[110px] py-2 sm:py-2.5 px-3 rounded-lg sm:rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0 select-none",
             subTab === 'categories'
               ? "bg-yellow-500 text-white shadow-md shadow-yellow-500/20"
               : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
           )}
         >
           <Layers className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-          <span className="truncate">Categorias</span>
+          <span>Categorias</span>
           <span className="text-[10px] sm:text-xs font-semibold opacity-80 shrink-0">({categories.length})</span>
         </button>
 
         <button
-          onClick={() => setSubTab('orders')}
+          onClick={() => {
+            if (storeSubTabsHasDragged.current) return;
+            setSubTab('orders');
+          }}
+          draggable={false}
           className={cn(
-            "flex-1 min-w-0 py-2 sm:py-2.5 px-1 sm:px-3 rounded-lg sm:rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer relative",
+            "flex-1 min-w-[110px] py-2 sm:py-2.5 px-3 rounded-lg sm:rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all cursor-pointer relative shrink-0 select-none",
             subTab === 'orders'
               ? "bg-yellow-500 text-white shadow-md shadow-yellow-500/20"
               : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
           )}
         >
           <Truck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-          <span className="truncate">Pedidos</span>
+          <span>Pedidos</span>
           <span className="text-[10px] sm:text-xs font-semibold opacity-80 shrink-0">({orders.length})</span>
           {orders.filter(o => o.status === 'Preparando Envio').length > 0 && (
             <span className="bg-red-500 text-white text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-black animate-pulse shrink-0">
@@ -596,64 +759,79 @@ export function StoreAdminTab() {
           ======================================================== */}
       {subTab === 'products' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto flex-1">
-              <div className="relative w-full sm:w-64">
-                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                  placeholder="Buscar produtos..."
-                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-yellow-500/30"
-                />
-              </div>
-
-              {/* Filtros Rápidos de Status */}
-              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
-                <button
-                  onClick={() => setProductStatusFilter('all')}
-                  className={cn(
-                    "px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
-                    productStatusFilter === 'all'
-                      ? "bg-yellow-500 text-white shadow-xs"
-                      : "bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-700"
-                  )}
-                >
-                  Todos ({products.length})
-                </button>
-                <button
-                  onClick={() => setProductStatusFilter('active')}
-                  className={cn(
-                    "px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
-                    productStatusFilter === 'active'
-                      ? "bg-green-600 text-white shadow-xs"
-                      : "bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-700"
-                  )}
-                >
-                  Ativos ({products.filter(p => p.isActive !== false).length})
-                </button>
-                <button
-                  onClick={() => setProductStatusFilter('inactive')}
-                  className={cn(
-                    "px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
-                    productStatusFilter === 'inactive'
-                      ? "bg-amber-600 text-white shadow-xs"
-                      : "bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-700"
-                  )}
-                >
-                  Pausados ({products.filter(p => p.isActive === false).length})
-                </button>
-              </div>
+          <div className="flex flex-col gap-3 bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm w-full">
+            {/* Linha 1: Campo de busca (w-full) */}
+            <div className="relative w-full">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+                placeholder="Buscar produtos por nome ou descrição..."
+                className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-xs text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500/30"
+              />
             </div>
 
+            {/* Linha 2: Botão + Novo Produto com largura total para fácil clique no celular */}
             <button
               onClick={() => handleOpenProductModal()}
-              className="w-full sm:w-auto bg-yellow-500 hover:bg-yellow-600 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer shrink-0"
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium text-xs sm:text-sm shadow-sm transition-colors cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              Novo Produto
+              <span>+ Novo Produto</span>
             </button>
+
+            {/* Linha 3: Barra de filtros (Todos, Ativos, Pausados) com rolagem horizontal suave e arraste por mouse no PC */}
+            <div 
+              {...productFilterDragProps}
+              className="flex items-center gap-2 overflow-x-auto whitespace-nowrap scrollbar-none py-1 w-full cursor-grab active:cursor-grabbing select-none touch-pan-x"
+            >
+              <button
+                onClick={() => {
+                  if (productFilterHasDragged.current) return;
+                  setProductStatusFilter('all');
+                }}
+                draggable={false}
+                className={cn(
+                  "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 select-none",
+                  productStatusFilter === 'all'
+                    ? "bg-yellow-500 text-white shadow-xs"
+                    : "bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-700"
+                )}
+              >
+                Todos ({products.length})
+              </button>
+              <button
+                onClick={() => {
+                  if (productFilterHasDragged.current) return;
+                  setProductStatusFilter('active');
+                }}
+                draggable={false}
+                className={cn(
+                  "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 select-none",
+                  productStatusFilter === 'active'
+                    ? "bg-green-600 text-white shadow-xs"
+                    : "bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-700"
+                )}
+              >
+                Ativos ({products.filter(p => p.isActive !== false).length})
+              </button>
+              <button
+                onClick={() => {
+                  if (productFilterHasDragged.current) return;
+                  setProductStatusFilter('inactive');
+                }}
+                draggable={false}
+                className={cn(
+                  "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 select-none",
+                  productStatusFilter === 'inactive'
+                    ? "bg-amber-600 text-white shadow-xs"
+                    : "bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-700"
+                )}
+              >
+                Pausados ({products.filter(p => p.isActive === false).length})
+              </button>
+            </div>
           </div>
 
           {loadingProducts ? (
@@ -667,7 +845,7 @@ export function StoreAdminTab() {
               <p className="text-xs text-gray-400 mt-1">Clique em "Novo Produto" para adicionar itens à vitrine.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full mt-4">
               {filteredProducts.map((product) => {
                 const category = categories.find(c => c.id === product.categoryId);
                 const isOutOfStock = product.stock <= 0;
@@ -677,13 +855,13 @@ export function StoreAdminTab() {
                   <div 
                     key={product.id}
                     className={cn(
-                      "bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 overflow-hidden shadow-sm flex flex-col justify-between transition-all",
+                      "w-full flex flex-col justify-between bg-white dark:bg-slate-900/60 rounded-xl border border-gray-200 dark:border-slate-800 p-3 overflow-hidden shadow-sm transition-all",
                       !product.isActive && "opacity-60 bg-gray-50 dark:bg-slate-950/40"
                     )}
                   >
                     <div>
                       {/* Imagem do Produto */}
-                      <div className="relative aspect-square w-full bg-gray-100 dark:bg-slate-800 overflow-hidden">
+                      <div className="relative aspect-square w-full bg-gray-100 dark:bg-slate-800/80 rounded-lg overflow-hidden">
                         {product.images && product.images.length > 0 ? (
                           <img
                             src={product.images[0]}
@@ -701,13 +879,13 @@ export function StoreAdminTab() {
                         <div className="absolute top-2 left-2 flex flex-col gap-1">
                           {!product.isActive ? (
                             <span className="bg-gray-900/90 text-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full backdrop-blur-sm border border-amber-500/30 flex items-center gap-1">
-                              <EyeOff className="w-2.5 h-2.5" />
-                              Pausado (Oculto)
+                              <EyeOff className="w-2.5 h-2.5 shrink-0" />
+                              Pausado
                             </span>
                           ) : (
                             <span className="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1">
-                              <Eye className="w-2.5 h-2.5" />
-                              Ativo na Vitrine
+                              <Eye className="w-2.5 h-2.5 shrink-0" />
+                              Ativo
                             </span>
                           )}
 
@@ -734,7 +912,7 @@ export function StoreAdminTab() {
                       </div>
 
                       {/* Dados */}
-                      <div className="p-4">
+                      <div className="pt-3 px-1">
                         <div className="text-[11px] font-bold uppercase text-yellow-600 dark:text-yellow-400 mb-1">
                           {category?.name || 'Geral'}
                         </div>
@@ -745,7 +923,7 @@ export function StoreAdminTab() {
                           {product.description || 'Sem descrição cadastrada.'}
                         </p>
 
-                        <div className="mt-3 flex items-baseline justify-between">
+                        <div className="mt-2.5 flex items-baseline justify-between">
                           <div>
                             <span className="text-base font-black text-gray-900 dark:text-white">
                               {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.price)}
@@ -756,51 +934,49 @@ export function StoreAdminTab() {
                       </div>
                     </div>
 
-                    {/* Ações Administrativas */}
-                    <div className="p-3 bg-gray-50 dark:bg-slate-800/40 border-t border-gray-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => handleToggleProductStatus(product)}
-                          className={cn(
-                            "px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer",
-                            product.isActive
-                              ? "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400"
-                              : "bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400"
-                          )}
-                          title={product.isActive ? "Pausar Produto (Ocultar da Vitrine)" : "Reativar Produto na Vitrine"}
-                        >
-                          {product.isActive ? (
-                            <>
-                              <EyeOff className="w-3.5 h-3.5" />
-                              <span>Pausar</span>
-                            </>
-                          ) : (
-                            <>
-                              <Eye className="w-3.5 h-3.5" />
-                              <span>Reativar</span>
-                            </>
-                          )}
-                        </button>
+                    {/* Rodapé do Card (Botões de Ação em largura total) */}
+                    <div className="flex items-center gap-2 w-full mt-3 pt-2 border-t border-gray-100 dark:border-slate-800/60">
+                      <button
+                        onClick={() => handleToggleProductStatus(product)}
+                        className={cn(
+                          "flex-1 py-2 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer",
+                          product.isActive
+                            ? "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400"
+                            : "bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400"
+                        )}
+                        title={product.isActive ? "Pausar Produto (Ocultar da Vitrine)" : "Reativar Produto na Vitrine"}
+                      >
+                        {product.isActive ? (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5 shrink-0" />
+                            <span>Pausar</span>
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3.5 h-3.5 shrink-0" />
+                            <span>Reativar</span>
+                          </>
+                        )}
+                      </button>
 
-                        <button
-                          onClick={() => handleOpenProductModal(product)}
-                          className="bg-white dark:bg-slate-700 hover:bg-gray-100 text-gray-800 dark:text-white px-3 py-1.5 rounded-lg text-xs font-bold border border-gray-200 dark:border-slate-600 flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
-                        >
-                          <Edit3 className="w-3.5 h-3.5 text-yellow-500" />
-                          <span>Editar</span>
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => handleOpenProductModal(product)}
+                        className="p-2.5 shrink-0 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 hover:dark:bg-slate-700 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-slate-700 flex items-center justify-center transition-colors cursor-pointer"
+                        title="Editar Produto"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-yellow-500" />
+                      </button>
 
                       <button
                         onClick={() => handleDeleteProduct(product)}
                         disabled={deletingProductId === product.id}
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                        className="p-2.5 shrink-0 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer disabled:opacity-50 border border-transparent hover:border-red-200 dark:hover:border-red-900/30"
                         title="Excluir Produto Permanentemente"
                       >
                         {deletingProductId === product.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-red-500" />
                         ) : (
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         )}
                       </button>
                     </div>
@@ -818,24 +994,24 @@ export function StoreAdminTab() {
       {subTab === 'orders' && (
         <div className="space-y-4">
           {/* Abas Principais de Pedidos: Pedidos Ativos vs Histórico / Concluídos */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
-            <div className="flex items-center gap-1.5 p-1 bg-gray-100 dark:bg-slate-800/80 rounded-xl">
+          <div className="flex flex-col gap-2.5 bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm w-full">
+            <div className="flex items-center gap-1.5 p-1 bg-gray-100 dark:bg-slate-800/80 rounded-xl w-full">
               <button
                 onClick={() => {
                   setOrderMainTab('active');
                   setOrderStatusFilter('all');
                 }}
                 className={cn(
-                  "flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                  "flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
                   orderMainTab === 'active'
                     ? "bg-white dark:bg-slate-900 text-yellow-600 dark:text-yellow-400 shadow-xs"
                     : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                 )}
               >
-                <Inbox className="w-4 h-4" />
-                <span>Pedidos Ativos</span>
+                <Inbox className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Ativos</span>
                 <span className={cn(
-                  "text-[10px] px-1.5 py-0.5 rounded-full font-black",
+                  "text-[10px] px-1.5 py-0.2 rounded-full font-black shrink-0",
                   activeOrdersCount > 0 
                     ? "bg-yellow-500 text-white" 
                     : "bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-gray-300"
@@ -850,28 +1026,28 @@ export function StoreAdminTab() {
                   setOrderStatusFilter('all');
                 }}
                 className={cn(
-                  "flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                  "flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
                   orderMainTab === 'history'
                     ? "bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs"
                     : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                 )}
               >
-                <History className="w-4 h-4" />
-                <span>Histórico / Concluídos</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-black bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-gray-300">
+                <History className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Histórico</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full font-black bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-gray-300 shrink-0">
                   {historyOrdersCount}
                 </span>
               </button>
             </div>
 
-            {/* Botão de Disparo Manual da Sincronização Automática dos Correios */}
+            {/* Ação de Sincronização dos Correios */}
             <button
               onClick={handleSyncDeliveries}
               disabled={isSyncingDeliveries}
-              className="flex items-center justify-center gap-2 px-3.5 py-2 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 dark:hover:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 dark:hover:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
               title="Executa a verificação dos códigos de rastreio de pedidos enviados nos Correios"
             >
-              <RefreshCw className={cn("w-3.5 h-3.5", isSyncingDeliveries && "animate-spin text-purple-600")} />
+              <RefreshCw className={cn("w-3.5 h-3.5 shrink-0", isSyncingDeliveries && "animate-spin text-purple-600")} />
               <span>{isSyncingDeliveries ? "Sincronizando..." : "Sincronizar Rastreios (Correios)"}</span>
             </button>
           </div>
@@ -892,22 +1068,22 @@ export function StoreAdminTab() {
           )}
 
           {/* Barra de Filtros e Busca */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
-            <div className="relative w-full sm:w-72">
+          <div className="flex flex-col gap-3 bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm w-full">
+            <div className="relative w-full">
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={orderSearch}
                 onChange={(e) => setOrderSearch(e.target.value)}
                 placeholder="Buscar por ID, cliente, rastreio..."
-                className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-yellow-500/30"
+                className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-xs text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500/30"
               />
             </div>
 
             {orderMainTab === 'active' && (
               <div 
                 {...orderFilterDragProps}
-                className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto scrollbar-none scrollbar-hide no-scrollbar pb-1 sm:pb-0 touch-pan-x cursor-grab active:cursor-grabbing select-none"
+                className="flex items-center gap-2 w-full overflow-x-auto whitespace-nowrap scrollbar-none py-1 touch-pan-x cursor-grab active:cursor-grabbing select-none"
               >
                 {[
                   { id: 'all', label: 'Todos os Ativos' },
@@ -922,10 +1098,10 @@ export function StoreAdminTab() {
                       setOrderStatusFilter(statusOption.id);
                     }}
                     className={cn(
-                      "text-xs px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer shrink-0",
+                      "text-xs px-3.5 py-1.5 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer shrink-0",
                       orderStatusFilter === statusOption.id
                         ? "bg-yellow-500 text-white shadow-xs"
-                        : "bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200"
+                        : "bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-700"
                     )}
                   >
                     {statusOption.label}
@@ -962,11 +1138,12 @@ export function StoreAdminTab() {
                 return (
                   <div
                     key={order.orderId}
-                    className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 p-4 shadow-sm flex flex-col md:flex-row justify-between gap-4"
+                    className="w-full bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 p-3.5 sm:p-4 shadow-sm flex flex-col justify-between gap-3.5 overflow-hidden"
                   >
-                    <div className="flex items-start gap-3.5">
+                    {/* Informações Principais do Pedido */}
+                    <div className="flex items-start gap-3 w-full min-w-0">
                       {/* Foto do produto comprado */}
-                      <div className="w-16 h-16 rounded-xl bg-gray-100 dark:bg-slate-800 overflow-hidden shrink-0 border border-gray-200 dark:border-slate-700">
+                      <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-gray-100 dark:bg-slate-800 overflow-hidden shrink-0 border border-gray-200 dark:border-slate-700">
                         {order.productImage ? (
                           <img
                             src={order.productImage}
@@ -982,119 +1159,146 @@ export function StoreAdminTab() {
 
                       {/* Informações da Venda */}
                       <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center justify-between gap-2 w-full">
                           <span 
-                            className="font-mono text-xs font-black text-gray-700 dark:text-gray-300 truncate max-w-[140px] xs:max-w-[200px] sm:max-w-none inline-block align-middle"
+                            className="font-mono text-xs font-black text-gray-700 dark:text-gray-300 truncate max-w-[120px] inline-block"
                             title={`#${order.orderId}`}
                           >
                             #{order.orderId}
                           </span>
-                          <span className={cn(
-                            "text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 whitespace-nowrap",
-                            isPending && "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-                            isPreparing && "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 animate-pulse",
-                            isShipped && "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
-                            isDelivered && "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
-                          )}>
-                            {order.status}
-                          </span>
-
-                          {isDelivered && order.autoDeliveredViaCron && (
-                            <span className="text-[10px] bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                              ✨ Correios Auto
+                          
+                          {/* Badges e Ações Rápidas (Editar e Excluir) */}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className={cn(
+                              "text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 whitespace-nowrap",
+                              isPending && "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+                              isPreparing && "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 animate-pulse",
+                              isShipped && "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
+                              isDelivered && "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
+                            )}>
+                              {order.status}
                             </span>
-                          )}
+
+                            {isDelivered && order.autoDeliveredViaCron && (
+                              <span className="text-[10px] bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                                ✨ Auto
+                              </span>
+                            )}
+
+                            {/* Botões de Ação Direta no Cabeçalho do Card */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditOrder(order)}
+                              className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shrink-0"
+                              title="Editar Pedido"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteOrder(order)}
+                              className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shrink-0"
+                              title="Excluir Pedido (com confirmação)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
 
-                        <h4 className="font-bold text-gray-900 dark:text-white text-sm mt-0.5">
+                        <h4 className="font-bold text-gray-900 dark:text-white text-sm mt-1 truncate" title={order.productName}>
                           {order.productName}
                         </h4>
 
-                        <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                          Cliente: <strong className="text-gray-900 dark:text-white">{order.userName}</strong> ({order.userEmail})
+                        <div className="text-xs text-gray-600 dark:text-gray-400 mt-1 break-words">
+                          Cliente: <strong className="text-gray-900 dark:text-white">{order.userName}</strong> <span className="text-[11px] text-gray-500 break-all">({order.userEmail})</span>
                         </div>
 
                         {order.deliveryAddress && (
-                          <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                          <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 bg-gray-50 dark:bg-slate-800/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800 break-words leading-relaxed">
                             📍 {order.deliveryAddress.street}, {order.deliveryAddress.number} {order.deliveryAddress.complement || ''} - {order.deliveryAddress.neighborhood}, {order.deliveryAddress.city}/{order.deliveryAddress.state} (CEP: {order.deliveryAddress.cep})
                             {order.deliveryAddress.phone && ` • Tel: ${order.deliveryAddress.phone}`}
                           </div>
                         )}
 
-                        <div className="flex flex-wrap items-center gap-3 mt-2 text-xs">
-                          <span className="font-black text-gray-900 dark:text-white">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-1.5 border-t border-gray-100 dark:border-slate-800/60 text-xs">
+                          <span className="font-black text-gray-900 dark:text-white text-sm">
                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(order.totalPrice)}
                           </span>
-                          <span className="text-gray-400">
-                            Criado: {order.createdAt ? format(new Date(order.createdAt), 'dd/MM/yyyy HH:mm') : ''}
+                          <span className="text-[11px] text-gray-400">
+                            {order.createdAt ? format(new Date(order.createdAt), 'dd/MM/yyyy HH:mm') : ''}
                           </span>
-                          {isDelivered && order.deliveredAt && (
-                            <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                              • Entregue: {format(new Date(order.deliveredAt), 'dd/MM/yyyy HH:mm')}
-                            </span>
-                          )}
                         </div>
+                        {isDelivered && order.deliveredAt && (
+                          <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">
+                            Entregue: {format(new Date(order.deliveredAt), 'dd/MM/yyyy HH:mm')}
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    {/* Ações de Envio e Rastreio */}
-                    <div className="flex flex-col justify-between items-start md:items-end border-t md:border-t-0 pt-3 md:pt-0 border-gray-100 dark:border-slate-800 gap-2 shrink-0">
+                    {/* Ações de Envio, Rastreio e Gestão do Pedido */}
+                    <div className="w-full flex flex-col gap-2 pt-3 border-t border-gray-100 dark:border-slate-800 min-w-0">
                       {/* Rastreio */}
-                      <div className="w-full md:w-auto">
+                      <div className="w-full min-w-0">
                         {editingTrackingOrderId === order.orderId ? (
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 w-full">
                             <input
                               type="text"
                               value={trackingInput}
                               onChange={(e) => setTrackingInput(e.target.value.toUpperCase())}
                               placeholder="Ex: AA123456789BR"
-                              className="w-36 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-900 dark:text-white uppercase focus:ring-2 focus:ring-yellow-500/30"
+                              className="flex-1 min-w-0 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-900 dark:text-white uppercase focus:ring-2 focus:ring-yellow-500/30"
                               autoFocus
                             />
                             <button
                               onClick={() => handleSaveTrackingCode(order.orderId)}
                               disabled={updatingOrderId === order.orderId}
-                              className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer"
+                              className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition-colors shrink-0 cursor-pointer"
                             >
                               Salvar
                             </button>
                             <button
                               onClick={() => setEditingTrackingOrderId(null)}
-                              className="text-gray-400 hover:text-gray-600 p-1 cursor-pointer"
+                              className="text-gray-400 hover:text-gray-600 p-1 shrink-0 cursor-pointer"
                             >
                               <X className="w-4 h-4" />
                             </button>
                           </div>
                         ) : order.trackingCode ? (
-                          <div className="flex items-center gap-2 bg-gray-50 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-gray-200 dark:border-slate-700 min-w-0 max-w-full">
-                            <span className="text-[11px] font-mono font-bold text-gray-800 dark:text-gray-200 truncate max-w-[130px] sm:max-w-none">
-                              {order.trackingCode}
-                            </span>
-                            <button
-                              onClick={() => copyToClipboard(order.trackingCode!, order.orderId)}
-                              className="text-gray-400 hover:text-yellow-600 p-0.5 cursor-pointer"
-                              title="Copiar Código"
-                            >
-                              {copiedTracking === order.orderId ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-                            </button>
-                            <a
-                              href={`https://rastreamento.correios.com.br/app/index.php?codigo=${order.trackingCode}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-500 hover:text-blue-600 p-0.5"
-                              title="Rastrear nos Correios"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                            </a>
-                            <button
-                              onClick={() => {
-                                setEditingTrackingOrderId(order.orderId);
-                                setTrackingInput(order.trackingCode || '');
-                              }}
-                              className="text-gray-400 hover:text-yellow-600 text-[10px] font-bold underline ml-1 cursor-pointer"
-                            >
-                              Editar
-                            </button>
+                          <div className="flex items-center justify-between gap-2 bg-gray-50 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-gray-200 dark:border-slate-700 w-full min-w-0">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <Truck className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                              <span className="text-[11px] font-mono font-bold text-gray-800 dark:text-gray-200 truncate" title={order.trackingCode}>
+                                {order.trackingCode}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => copyToClipboard(order.trackingCode!, order.orderId)}
+                                className="text-gray-400 hover:text-yellow-600 p-1 cursor-pointer"
+                                title="Copiar Código"
+                              >
+                                {copiedTracking === order.orderId ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                              </button>
+                              <a
+                                href={`https://rastreamento.correios.com.br/app/index.php?codigo=${order.trackingCode}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-500 hover:text-blue-600 p-1"
+                                title="Rastrear nos Correios"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                              <button
+                                onClick={() => {
+                                  setEditingTrackingOrderId(order.orderId);
+                                  setTrackingInput(order.trackingCode || '');
+                                }}
+                                className="text-gray-400 hover:text-yellow-600 text-[10px] font-bold underline ml-1 cursor-pointer"
+                              >
+                                Editar
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           <button
@@ -1102,7 +1306,7 @@ export function StoreAdminTab() {
                               setEditingTrackingOrderId(order.orderId);
                               setTrackingInput('');
                             }}
-                            className="bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 hover:bg-purple-100 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 border border-purple-200 dark:border-purple-800 transition-colors cursor-pointer"
+                            className="w-full bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/30 font-bold px-3 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 border border-purple-200 dark:border-purple-800 transition-colors cursor-pointer"
                           >
                             <Truck className="w-3.5 h-3.5" />
                             <span>Informar Rastreio</span>
@@ -1110,20 +1314,44 @@ export function StoreAdminTab() {
                         )}
                       </div>
 
-                      {/* Dropdown de Troca de Status */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] text-gray-400">Alterar Status:</span>
-                        <select
-                          value={order.status}
-                          disabled={updatingOrderId === order.orderId}
-                          onChange={(e) => handleUpdateOrderStatus(order.orderId, e.target.value as StoreOrderStatus)}
-                          className="bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-xs font-bold px-2 py-1.5 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-yellow-500/30 cursor-pointer"
-                        >
-                          <option value="Aguardando Pagamento">Aguardando Pagamento</option>
-                          <option value="Preparando Envio">Preparando Envio</option>
-                          <option value="Enviado">Enviado</option>
-                          <option value="Entregue">Entregue</option>
-                        </select>
+                      {/* Dropdown de Troca de Status e Botões de Ação (Editar e Excluir) */}
+                      <div className="w-full flex items-center justify-between gap-2 bg-gray-50/70 dark:bg-slate-800/40 p-2 rounded-xl border border-gray-100 dark:border-slate-800/80">
+                        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                          <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400 shrink-0">Status:</span>
+                          <select
+                            value={order.status}
+                            disabled={updatingOrderId === order.orderId}
+                            onChange={(e) => handleUpdateOrderStatus(order.orderId, e.target.value as StoreOrderStatus)}
+                            className="flex-1 min-w-0 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-xs font-bold px-2 py-1 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-yellow-500/30 cursor-pointer"
+                          >
+                            <option value="Aguardando Pagamento">Aguardando Pagamento</option>
+                            <option value="Preparando Envio">Preparando Envio</option>
+                            <option value="Enviado">Enviado</option>
+                            <option value="Entregue">Entregue</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditOrder(order)}
+                            className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-gray-700 dark:text-gray-300 bg-white dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700 rounded-lg transition-colors cursor-pointer shrink-0"
+                            title="Editar detalhes do pedido"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 shrink-0 text-yellow-600" />
+                            <span>Editar</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteOrder(order)}
+                            className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-900/50 rounded-lg transition-colors cursor-pointer shrink-0"
+                            title="Excluir este pedido"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                            <span>Excluir</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1205,21 +1433,22 @@ export function StoreAdminTab() {
           MODAL: CRIAR / EDITAR PRODUTO (EDIÇÃO PROFUNDA)
           ======================================================== */}
       {productModalOpen && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-gray-200 dark:border-slate-800 my-8">
-            <div className="p-5 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center">
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-3 sm:p-4 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-lg shadow-2xl border border-gray-200 dark:border-slate-800 my-auto max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="p-4 sm:p-5 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center shrink-0">
               <h3 className="font-bold text-gray-900 dark:text-white text-base">
                 {editingProduct ? 'Edição Profunda do Produto' : 'Cadastrar Novo Produto'}
               </h3>
               <button
+                type="button"
                 onClick={() => setProductModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600 p-1 cursor-pointer"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1.5 rounded-lg transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveProduct} className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+            <form onSubmit={handleSaveProduct} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 min-h-0">
               <div>
                 <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
                   Título do Produto *
@@ -1247,7 +1476,7 @@ export function StoreAdminTab() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
                     Preço à Vista (R$) *
@@ -1279,7 +1508,7 @@ export function StoreAdminTab() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
                     Categoria
@@ -1301,7 +1530,7 @@ export function StoreAdminTab() {
                   <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
                     Visibilidade na Vitrine
                   </label>
-                  <div className="flex items-center h-10">
+                  <div className="flex items-center h-10 px-1">
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
                         type="checkbox"
@@ -1310,7 +1539,7 @@ export function StoreAdminTab() {
                         className="sr-only peer"
                       />
                       <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
-                      <span className="ml-2 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                      <span className="ml-2 text-xs font-semibold text-gray-700 dark:text-gray-300 select-none">
                         {isActive ? 'Ativo na Loja' : 'Pausado / Oculto'}
                       </span>
                     </label>
@@ -1324,16 +1553,16 @@ export function StoreAdminTab() {
                   <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">
                     Fotos do Produto ({images.length})
                   </label>
-                  <span className="text-[10px] text-gray-400">Primeira foto será a capa principal</span>
+                  <span className="text-[10px] text-gray-400">Primeira foto é a capa</span>
                 </div>
 
-                {/* Grade de fotos já enviadas */}
-                <div className="grid grid-cols-4 gap-2 mb-3">
+                {/* Grade de fotos já enviadas - responsiva */}
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
                   {images.map((imgUrl, idx) => (
                     <div key={idx} className="relative aspect-square rounded-xl bg-gray-100 dark:bg-slate-800 overflow-hidden border border-gray-200 dark:border-slate-700 group">
                       <img src={imgUrl} alt={`Foto ${idx + 1}`} className="w-full h-full object-cover" />
                       {idx === 0 && (
-                        <span className="absolute top-1 left-1 bg-yellow-500 text-white text-[9px] px-1 py-0.2 rounded font-black">
+                        <span className="absolute top-1 left-1 bg-yellow-500 text-white text-[9px] px-1 py-0.2 rounded font-black shadow-xs">
                           Capa
                         </span>
                       )}
@@ -1348,10 +1577,23 @@ export function StoreAdminTab() {
                     </div>
                   ))}
 
-                  {/* Botão de Adicionar Mais Fotos */}
-                  <label className="aspect-square rounded-xl border-2 border-dashed border-gray-300 dark:border-slate-700 hover:border-yellow-500 dark:hover:border-yellow-500 flex flex-col items-center justify-center text-gray-400 hover:text-yellow-600 cursor-pointer transition-colors">
+                  {/* Botão de Adicionar Mais Fotos com Feedback de Progresso */}
+                  <label className="aspect-square rounded-xl border-2 border-dashed border-gray-300 dark:border-slate-700 hover:border-yellow-500 dark:hover:border-yellow-500 flex flex-col items-center justify-center text-gray-400 hover:text-yellow-600 cursor-pointer transition-colors p-2 text-center relative overflow-hidden">
                     {uploadingImage ? (
-                      <Loader2 className="w-5 h-5 animate-spin text-yellow-500" />
+                      <div className="flex flex-col items-center justify-center gap-1 w-full px-1">
+                        <Loader2 className="w-5 h-5 animate-spin text-yellow-500" />
+                        <span className="text-[10px] font-bold text-yellow-600 dark:text-yellow-400">
+                          {uploadProgress !== null ? `${uploadProgress}%` : 'Enviando...'}
+                        </span>
+                        {uploadProgress !== null && (
+                          <div className="w-full h-1 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden mt-0.5">
+                            <div 
+                              className="h-full bg-yellow-500 transition-all duration-200 rounded-full"
+                              style={{ width: `${Math.max(5, uploadProgress)}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <>
                         <Upload className="w-5 h-5 mb-1" />
@@ -1388,7 +1630,7 @@ export function StoreAdminTab() {
                 <button
                   type="submit"
                   disabled={savingProduct || uploadingImage}
-                  className="flex-1 py-2.5 rounded-xl bg-yellow-500 hover:bg-yellow-600 font-bold text-xs text-white shadow-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="flex-1 py-2.5 rounded-xl bg-yellow-500 hover:bg-yellow-600 font-bold text-xs text-white shadow-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   {savingProduct ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar Produto'}
                 </button>
@@ -1558,6 +1800,352 @@ export function StoreAdminTab() {
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          MODAL DE CONFIRMAÇÃO DE EXCLUSÃO DE PEDIDO INDIVIDUAL
+          ======================================================== */}
+      {orderToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-5 shadow-2xl border border-gray-100 dark:border-slate-800 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 dark:text-white text-sm">
+                    Excluir Pedido
+                  </h3>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+                    #{orderToDelete.orderId}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => !isDeletingOrder && setOrderToDelete(null)}
+                disabled={isDeletingOrder}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1.5 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Detalhes do Pedido a ser excluído */}
+            <div className="bg-gray-50 dark:bg-slate-800/60 p-3 rounded-2xl flex flex-col gap-2 border border-gray-100 dark:border-slate-800 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-gray-900 dark:text-white truncate">
+                  {orderToDelete.productName}
+                </span>
+                <span className="font-black text-gray-900 dark:text-white shrink-0">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(orderToDelete.totalPrice)}
+                </span>
+              </div>
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                Cliente: <strong className="text-gray-700 dark:text-gray-300">{orderToDelete.userName}</strong> ({orderToDelete.userEmail})
+              </div>
+              <div className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                Status: <span className="font-semibold text-yellow-600 dark:text-yellow-400">{orderToDelete.status}</span>
+              </div>
+            </div>
+
+            <div className="bg-red-50 dark:bg-red-950/20 border border-red-200/70 dark:border-red-900/40 rounded-2xl p-3.5 space-y-1">
+              <p className="text-xs font-semibold text-red-900 dark:text-red-300">
+                Tem certeza que deseja excluir este pedido?
+              </p>
+              <p className="text-[11px] text-red-700/80 dark:text-red-400/80 leading-relaxed">
+                Esta ação é irreversível. O pedido será removido permanentemente tanto dos pedidos ativos quanto do histórico de vendas.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setOrderToDelete(null)}
+                disabled={isDeletingOrder}
+                className="py-2.5 px-3 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 font-bold text-xs rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteOrder}
+                disabled={isDeletingOrder}
+                className="py-2.5 px-3 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
+              >
+                {isDeletingOrder ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Excluindo...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Sim, Excluir</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          MODAL: EDITAR PEDIDO (GESTÃO COMPLETA DE DADOS DO PEDIDO)
+          ======================================================== */}
+      {orderToEdit && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-gray-200 dark:border-slate-800 my-8">
+            <div className="p-5 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 flex items-center justify-center shrink-0">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 dark:text-white text-base">
+                    Editar Pedido
+                  </h3>
+                  <p className="text-[11px] font-mono text-gray-500 dark:text-gray-400">
+                    #{orderToEdit.orderId}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isSavingOrder && setOrderToEdit(null)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1.5 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveOrder} className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Resumo do Produto */}
+              <div className="bg-gray-50 dark:bg-slate-800/60 p-3 rounded-2xl flex items-center justify-between border border-gray-100 dark:border-slate-800">
+                <div className="min-w-0 flex-1">
+                  <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Produto Comprado</span>
+                  <h4 className="text-xs font-bold text-gray-900 dark:text-white truncate mt-0.5">
+                    {orderToEdit.productName}
+                  </h4>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Valor</span>
+                  <p className="text-xs font-black text-gray-900 dark:text-white mt-0.5">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(orderToEdit.totalPrice)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Status do Pedido e Código de Rastreio */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                    Status do Pedido *
+                  </label>
+                  <select
+                    value={editOrderForm.status}
+                    onChange={(e) => setEditOrderForm(prev => ({ ...prev, status: e.target.value as StoreOrderStatus }))}
+                    className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30 cursor-pointer"
+                  >
+                    <option value="Aguardando Pagamento">Aguardando Pagamento</option>
+                    <option value="Preparando Envio">Preparando Envio</option>
+                    <option value="Enviado">Enviado</option>
+                    <option value="Entregue">Entregue</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                    Código de Rastreio (Correios)
+                  </label>
+                  <input
+                    type="text"
+                    value={editOrderForm.trackingCode}
+                    onChange={(e) => setEditOrderForm(prev => ({ ...prev, trackingCode: e.target.value.toUpperCase() }))}
+                    placeholder="Ex: AA123456789BR"
+                    className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-mono uppercase text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                  />
+                </div>
+              </div>
+
+              {/* Informações do Cliente */}
+              <div className="pt-2 border-t border-gray-100 dark:border-slate-800">
+                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-2">
+                  Dados do Comprador
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                      Nome do Cliente
+                    </label>
+                    <input
+                      type="text"
+                      value={editOrderForm.userName}
+                      onChange={(e) => setEditOrderForm(prev => ({ ...prev, userName: e.target.value }))}
+                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                      E-mail
+                    </label>
+                    <input
+                      type="email"
+                      value={editOrderForm.userEmail}
+                      onChange={(e) => setEditOrderForm(prev => ({ ...prev, userEmail: e.target.value }))}
+                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Endereço de Entrega */}
+              <div className="pt-2 border-t border-gray-100 dark:border-slate-800">
+                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-2">
+                  Endereço de Entrega
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  <div className="col-span-2">
+                    <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Rua / Logradouro
+                    </label>
+                    <input
+                      type="text"
+                      value={editOrderForm.street}
+                      onChange={(e) => setEditOrderForm(prev => ({ ...prev, street: e.target.value }))}
+                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Número
+                    </label>
+                    <input
+                      type="text"
+                      value={editOrderForm.number}
+                      onChange={(e) => setEditOrderForm(prev => ({ ...prev, number: e.target.value }))}
+                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Complemento
+                    </label>
+                    <input
+                      type="text"
+                      value={editOrderForm.complement}
+                      onChange={(e) => setEditOrderForm(prev => ({ ...prev, complement: e.target.value }))}
+                      placeholder="Apto, Bloco..."
+                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Bairro
+                    </label>
+                    <input
+                      type="text"
+                      value={editOrderForm.neighborhood}
+                      onChange={(e) => setEditOrderForm(prev => ({ ...prev, neighborhood: e.target.value }))}
+                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      CEP
+                    </label>
+                    <input
+                      type="text"
+                      value={editOrderForm.cep}
+                      onChange={(e) => setEditOrderForm(prev => ({ ...prev, cep: e.target.value }))}
+                      placeholder="00000-000"
+                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Cidade
+                    </label>
+                    <input
+                      type="text"
+                      value={editOrderForm.city}
+                      onChange={(e) => setEditOrderForm(prev => ({ ...prev, city: e.target.value }))}
+                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Estado (UF)
+                    </label>
+                    <input
+                      type="text"
+                      value={editOrderForm.state}
+                      onChange={(e) => setEditOrderForm(prev => ({ ...prev, state: e.target.value.toUpperCase() }))}
+                      maxLength={2}
+                      placeholder="UF"
+                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs uppercase text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Telefone / WhatsApp
+                    </label>
+                    <input
+                      type="text"
+                      value={editOrderForm.phone}
+                      onChange={(e) => setEditOrderForm(prev => ({ ...prev, phone: e.target.value }))}
+                      placeholder="(00) 00000-0000"
+                      className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Observações / Notas */}
+              <div className="pt-2 border-t border-gray-100 dark:border-slate-800">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Observações Internas (Opcional)
+                </label>
+                <textarea
+                  value={editOrderForm.notes}
+                  onChange={(e) => setEditOrderForm(prev => ({ ...prev, notes: e.target.value }))}
+                  rows={2}
+                  placeholder="Anotações internas sobre o pedido ou cliente..."
+                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30 resize-none"
+                />
+              </div>
+
+              {/* Botões de Ação do Modal */}
+              <div className="flex gap-2.5 pt-3 border-t border-gray-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setOrderToEdit(null)}
+                  disabled={isSavingOrder}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 font-bold text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingOrder}
+                  className="flex-1 py-2.5 rounded-xl bg-yellow-500 hover:bg-yellow-600 font-bold text-xs text-white shadow-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingOrder ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Salvando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Salvar Alterações</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Search, 
   ShoppingBag, 
@@ -70,6 +70,7 @@ export function Store({ onChangeTab }: StoreProps) {
   const [state, setState] = useState('');
   const [loadingCep, setLoadingCep] = useState(false);
   const [processingCheckout, setProcessingCheckout] = useState(false);
+  const isSubmittingCheckoutRef = useRef(false);
 
   // Estados de Validação e Erros dos Campos
   const [fullNameError, setFullNameError] = useState('');
@@ -296,6 +297,9 @@ export function Store({ onChangeTab }: StoreProps) {
 
   const handleConfirmCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (processingCheckout || isSubmittingCheckoutRef.current) {
+      return;
+    }
     setFormAttempted(true);
 
     if (!selectedProduct) return;
@@ -357,8 +361,10 @@ export function Store({ onChangeTab }: StoreProps) {
       return;
     }
 
-    // Se todos os campos passaram, inicia o checkout seguro do Mercado Pago
+    // Trava Imediata no Front-End (Debounce / Anti-duplicação):
+    isSubmittingCheckoutRef.current = true;
     setProcessingCheckout(true);
+
     try {
       const deliveryAddress: StoreDeliveryAddress = {
         fullName: fullName.trim(),
@@ -382,6 +388,7 @@ export function Store({ onChangeTab }: StoreProps) {
 
       if (result.init_point) {
         toast.success('Redirecionando para o Checkout Seguro do Mercado Pago...');
+        // Manter a trava ativa enquanto redireciona o navegador
         window.location.href = result.init_point;
       } else {
         throw new Error('Link de pagamento não retornado');
@@ -389,8 +396,8 @@ export function Store({ onChangeTab }: StoreProps) {
     } catch (err: any) {
       console.error('Erro ao criar checkout:', err);
       toast.error(err?.message || 'Erro ao iniciar pagamento no Mercado Pago.');
-    } finally {
       setProcessingCheckout(false);
+      isSubmittingCheckoutRef.current = false;
     }
   };
 

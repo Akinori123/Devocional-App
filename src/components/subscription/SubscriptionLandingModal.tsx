@@ -30,6 +30,19 @@ export function SubscriptionLandingModal({ onSuccessClose }: SubscriptionLanding
     const preapprovalId = urlParams.get('preapproval_id');
     const collectionStatus = urlParams.get('collection_status');
 
+    // ISOLAMENTO RIGOROSO DE PRODUTOS DA LOJA (store_order):
+    // Se a compra for de produto físico (possui orderId ord_*, subTab=orders ou type=store_order), NÃO abre o modal de Florescer Premium
+    const orderIdParam = urlParams.get('orderId') || urlParams.get('external_reference');
+    const typeParam = urlParams.get('type') || urlParams.get('order_type');
+    const isStoreOrder = 
+      typeParam === 'store_order' || 
+      urlParams.get('subTab') === 'orders' ||
+      Boolean(orderIdParam && orderIdParam.startsWith('ord_'));
+
+    if (isStoreOrder) {
+      return;
+    }
+
     const isSuccessOrPending = 
       subParam === 'success' || 
       subParam === 'pending' ||

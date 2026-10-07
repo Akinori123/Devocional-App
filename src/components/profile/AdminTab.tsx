@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { doc, getDoc, setDoc, collection, serverTimestamp, getDocs, query, orderBy, deleteDoc, updateDoc, writeBatch, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { Loader2, Save, Video, Book, PlusCircle, Trash2, Edit2, X, Search, Download, Check, Sparkles, ChevronDown, ChevronRight, RefreshCw, Star, HelpCircle, Activity, SlidersHorizontal, Lock, Crown, Coins, FileJson, Upload, Copy } from 'lucide-react';
+import { Loader2, Save, Video, Book, PlusCircle, Trash2, Edit2, X, Search, Download, Check, Sparkles, ChevronDown, ChevronRight, RefreshCw, Star, HelpCircle, Activity, SlidersHorizontal, Lock, Crown, Coins, FileJson, Upload, Copy, Tv, Film } from 'lucide-react';
 import { useDevotionals } from '../../context/DevotionalContext';
 import { useToast } from '../../context/ToastContext';
 import { DevotionalItem, mockDevotionals } from '../../data/devotionals';
@@ -9,6 +9,7 @@ import { cn } from '../../lib/utils';
 import { extractYouTubeId } from '../video/YouTubeFacade';
 import { ApiMonitoringDashboard } from '../admin/ApiMonitoringDashboard';
 import { recordApiUsage } from '../../services/apiMetricsService';
+import { useDragScroll } from '../../hooks/useDragScroll';
 
 const normalizeThemeName = (theme: string) => {
   let normalized = theme.toLowerCase()
@@ -69,37 +70,10 @@ export function AdminTab() {
   const [activeTab, setActiveTab] = useState<'daily' | 'library' | 'videos' | 'metrics'>('daily');
   
   // Drag to scroll tabs with smooth mouse support
-  const adminTabsRef = useRef<HTMLDivElement>(null);
-  const isMouseDownRef = useRef(false);
-  const startXRef = useRef(0);
-  const startScrollLeftRef = useRef(0);
-  const hasMovedRef = useRef(false);
-
-  const handleTabsMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    isMouseDownRef.current = true;
-    hasMovedRef.current = false;
-    startXRef.current = e.clientX;
-    startScrollLeftRef.current = adminTabsRef.current?.scrollLeft || 0;
-  };
-
-  const handleTabsMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isMouseDownRef.current || !adminTabsRef.current) return;
-    const deltaX = e.clientX - startXRef.current;
-    if (Math.abs(deltaX) > 4) {
-      hasMovedRef.current = true;
-      adminTabsRef.current.scrollLeft = startScrollLeftRef.current - deltaX;
-    }
-  };
-
-  const handleTabsMouseUp = () => {
-    isMouseDownRef.current = false;
-    setTimeout(() => {
-      hasMovedRef.current = false;
-    }, 100);
-  };
+  const { dragProps: adminTabsDragProps, hasDragged: hasDraggedAdminTabs } = useDragScroll<HTMLDivElement>();
 
   const handleAdminTabClick = (tab: 'daily' | 'library' | 'videos' | 'metrics') => {
-    if (hasMovedRef.current) return;
+    if (hasDraggedAdminTabs.current) return;
     setActiveTab(tab);
   };
   const [showManualModal, setShowManualModal] = useState(false);
@@ -270,6 +244,7 @@ export function AdminTab() {
         });
       }
 
+      setVideoId(parsedVideoId);
       toast.success("Conteúdo diário atualizado com sucesso!");
     } catch (error: any) {
       toast.error("Erro ao salvar: " + error.message);
@@ -305,9 +280,10 @@ export function AdminTab() {
     setSaving(true);
     try {
       const isExclusive = video.isPremium ?? video.isExclusive ?? false;
+      const cleanVideoId = extractYouTubeId(video.videoId);
       
       await setDoc(doc(db, 'settings', 'daily_content'), {
-        videoId: video.videoId || '',
+        videoId: cleanVideoId,
         verseText: video.verseText || '',
         verseRef: video.verseRef || '',
         isExclusive: isExclusive,
@@ -316,7 +292,7 @@ export function AdminTab() {
       });
 
       // Update local state so it reflects immediately in the daily tab too
-      setVideoId(video.videoId || '');
+      setVideoId(cleanVideoId);
       setVerseText(video.verseText || '');
       setVerseRef(video.verseRef || '');
       setIsVideoExclusive(isExclusive);
@@ -353,7 +329,7 @@ export function AdminTab() {
 
   const handleEditVideo = (video: any) => {
     setEditingVideoId(video.id);
-    setEditHistVideoId(video.videoId || '');
+    setEditHistVideoId(extractYouTubeId(video.videoId));
     setEditHistVerseText(video.verseText || '');
     setEditHistVerseRef(video.verseRef || '');
     setEditHistIsExclusive(video.isPremium ?? video.isExclusive ?? false);
@@ -885,57 +861,55 @@ export function AdminTab() {
   return (
     <div className="animate-in fade-in duration-300">
       <div 
-        ref={adminTabsRef}
-        onMouseDown={handleTabsMouseDown}
-        onMouseMove={handleTabsMouseMove}
-        onMouseUp={handleTabsMouseUp}
-        onMouseLeave={handleTabsMouseUp}
-        onWheel={(e) => {
-          if (adminTabsRef.current && e.deltaY !== 0) {
-            adminTabsRef.current.scrollLeft += e.deltaY;
-          }
-        }}
-        className="flex bg-gray-100/80 dark:bg-slate-800/80 p-1.5 rounded-2xl mb-8 border border-gray-200/50 dark:border-slate-700/50 backdrop-blur-sm gap-1 overflow-x-auto scrollbar-hide no-scrollbar cursor-grab active:cursor-grabbing select-none"
+        {...adminTabsDragProps}
+        className="flex items-center gap-2 overflow-x-auto whitespace-nowrap scrollbar-none w-full p-1 bg-gray-100 dark:bg-slate-800 rounded-xl mb-6 shadow-inner cursor-grab active:cursor-grabbing select-none touch-pan-x"
       >
         <button
           onClick={() => handleAdminTabClick('daily')}
-          className={`flex-1 min-w-[120px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+          className={cn(
+            "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shrink-0 cursor-pointer",
             activeTab === 'daily' 
-              ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md ring-1 ring-black/5 dark:ring-white/10 font-bold' 
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-          }`}
+              ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm font-bold" 
+              : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+          )}
         >
-          📺 Destaque de Hoje
+          <Tv className="w-4 h-4 shrink-0 text-amber-500" />
+          <span>Destaque de Hoje</span>
         </button>
         <button
           onClick={() => handleAdminTabClick('library')}
-          className={`flex-1 min-w-[120px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+          className={cn(
+            "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shrink-0 cursor-pointer",
             activeTab === 'library' 
-              ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md ring-1 ring-black/5 dark:ring-white/10 font-bold' 
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-          }`}
+              ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm font-bold" 
+              : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+          )}
         >
-          📚 Acervo & Jornada
+          <Book className="w-4 h-4 shrink-0 text-purple-500" />
+          <span>Acervo & Jornada</span>
         </button>
         <button
           onClick={() => handleAdminTabClick('videos')}
-          className={`flex-1 min-w-[120px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+          className={cn(
+            "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shrink-0 cursor-pointer",
             activeTab === 'videos' 
-              ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md ring-1 ring-black/5 dark:ring-white/10 font-bold' 
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-          }`}
+              ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm font-bold" 
+              : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+          )}
         >
-          📹 Vídeos Antigos
+          <Film className="w-4 h-4 shrink-0 text-blue-500" />
+          <span>Vídeos Antigos</span>
         </button>
         <button
           onClick={() => handleAdminTabClick('metrics')}
-          className={`flex-1 min-w-[140px] py-2.5 text-xs sm:text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
+          className={cn(
+            "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shrink-0 cursor-pointer",
             activeTab === 'metrics' 
-              ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-md ring-1 ring-black/5 dark:ring-white/10 font-bold' 
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-          }`}
+              ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm font-bold" 
+              : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+          )}
         >
-          <Activity className="w-3.5 h-3.5" />
+          <Activity className="w-4 h-4 shrink-0 text-emerald-500" />
           <span>Monitoramento de APIs</span>
         </button>
       </div>
@@ -1142,11 +1116,11 @@ export function AdminTab() {
                         <div key={theme} className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                           <div 
                             onClick={() => toggleTheme(theme)}
-                            className="flex items-center justify-between p-5 cursor-pointer bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
+                            className="flex items-center justify-between p-3.5 sm:p-5 cursor-pointer bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors gap-2"
                           >
-                            <div className="flex items-center gap-3 flex-wrap">
-                              <h4 className="font-bold text-gray-900 dark:text-white text-base">{displayHeaderTheme}</h4>
-                              <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200">
+                            <div className="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0">
+                              <h4 className="font-bold text-gray-900 dark:text-white text-sm sm:text-base truncate">{displayHeaderTheme}</h4>
+                              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200 shrink-0 whitespace-nowrap inline-flex items-center">
                                 {isDiaAvulso && devs.length === 1 ? 'Dia Avulso' : `${devs.length} ${devs.length === 1 ? 'dia' : 'dias'}`}
                               </span>
                               {/* Visibility Badge */}
@@ -1778,58 +1752,66 @@ export function AdminTab() {
                       </div>
                     ) : (
                       <>
-                        <div className="flex justify-between items-start mb-2 flex-wrap gap-2">
-                          <div className="flex items-center flex-wrap gap-2">
-                            {videoId && video.videoId === videoId && (
-                              <span className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs font-bold px-2 py-1 rounded flex items-center gap-1 border border-emerald-200 dark:border-emerald-800/50">
-                                <Star className="w-3 h-3 fill-current" /> Destaque de Hoje
-                              </span>
-                            )}
-                            <span className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-xs font-bold px-2 py-1 rounded">
-                              YT: {video.videoId || 'Sem Vídeo'}
-                            </span>
-                            {(video.isPremium || video.isExclusive) && (
-                              <span className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 text-xs font-bold px-2 py-1 rounded flex items-center gap-1">
-                                Premium
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1">
-                            {videoId && video.videoId === videoId ? (
-                              <button
-                                onClick={handleClearDaily}
-                                disabled={saving}
-                                className="p-2 text-emerald-600 hover:text-white bg-emerald-50 hover:bg-emerald-500 dark:bg-emerald-900/20 dark:text-emerald-400 dark:hover:bg-emerald-600 dark:hover:text-white rounded-lg transition-colors border border-emerald-200 dark:border-emerald-800/50"
-                                title="Remover Destaque da Home"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => setSettingDailyVideoId(video.id)}
-                                disabled={saving}
-                                className="p-2 text-gray-500 hover:text-emerald-600 bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors border border-gray-200 dark:border-slate-700"
-                                title="Definir como Destaque de Hoje"
-                              >
-                                <Star className="w-4 h-4" />
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleEditVideo(video)}
-                              className="p-2 text-gray-500 hover:text-purple-600 bg-white dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg transition-colors border border-gray-200 dark:border-slate-700"
-                              title="Editar"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => setDeletingVideoId(video.id)}
-                              className="p-2 text-gray-500 hover:text-red-600 bg-white dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors border border-gray-200 dark:border-slate-700"
-                              title="Excluir"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
+                        {(() => {
+                          const cleanId = extractYouTubeId(video.videoId);
+                          const currentDailyId = extractYouTubeId(videoId);
+                          const isHighlight = Boolean(cleanId && currentDailyId && cleanId === currentDailyId);
+
+                          return (
+                            <div className="flex justify-between items-start mb-2 flex-wrap gap-2">
+                              <div className="flex items-center flex-wrap gap-2">
+                                {isHighlight && (
+                                  <span className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs font-bold px-2 py-1 rounded flex items-center gap-1 border border-emerald-200 dark:border-emerald-800/50">
+                                    <Star className="w-3 h-3 fill-current" /> Destaque de Hoje
+                                  </span>
+                                )}
+                                <span className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-xs font-bold px-2 py-1 rounded">
+                                  YT: {cleanId || 'Sem Vídeo'}
+                                </span>
+                                {(video.isPremium || video.isExclusive) && (
+                                  <span className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 text-xs font-bold px-2 py-1 rounded flex items-center gap-1">
+                                    Premium
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                {isHighlight ? (
+                                  <button
+                                    onClick={handleClearDaily}
+                                    disabled={saving}
+                                    className="p-2 text-emerald-600 hover:text-white bg-emerald-50 hover:bg-emerald-500 dark:bg-emerald-900/20 dark:text-emerald-400 dark:hover:bg-emerald-600 dark:hover:text-white rounded-lg transition-colors border border-emerald-200 dark:border-emerald-800/50"
+                                    title="Remover Destaque da Home"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => setSettingDailyVideoId(video.id)}
+                                    disabled={saving}
+                                    className="p-2 text-gray-500 hover:text-emerald-600 bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors border border-gray-200 dark:border-slate-700"
+                                    title="Definir como Destaque de Hoje"
+                                  >
+                                    <Star className="w-4 h-4" />
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleEditVideo(video)}
+                                  className="p-2 text-gray-500 hover:text-purple-600 bg-white dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg transition-colors border border-gray-200 dark:border-slate-700"
+                                  title="Editar"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => setDeletingVideoId(video.id)}
+                                  className="p-2 text-gray-500 hover:text-red-600 bg-white dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors border border-gray-200 dark:border-slate-700"
+                                  title="Excluir"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })()}
                         {video.verseText && (
                           <div className="mt-3">
                             <p className="text-sm text-gray-700 dark:text-gray-300 italic">"{video.verseText}"</p>

@@ -36,6 +36,7 @@ import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { AdminTab } from '../components/profile/AdminTab';
 import { StoreAdminTab } from '../components/admin/StoreAdminTab';
+import { useDragScroll } from '../hooks/useDragScroll';
 
 interface UsersAdminPanelProps {
   onChangeTab: (tab: TabType) => void;
@@ -60,6 +61,8 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
   const [currentView, setCurrentView] = useState<'active' | 'trash'>('active');
   const [mainTab, setMainTab] = useState<'users' | 'content' | 'store'>('users');
   const toast = useToast();
+
+  const { dragProps: mainTabsDragProps, hasDragged: hasDraggedMainTabs } = useDragScroll();
 
   useEffect(() => {
     if (!isAdmin) {
@@ -410,9 +413,9 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
   if (!isAdmin) return null;
 
   return (
-    <div className="flex-1 flex flex-col bg-gray-50 dark:bg-slate-900 min-h-screen pb-32 transition-colors duration-200">
+    <div className="relative w-full max-w-md mx-auto overflow-x-hidden flex-1 flex flex-col bg-gray-50 dark:bg-slate-900 min-h-screen pb-32 transition-colors duration-200">
       {/* Header Info & Tabs (Flows naturally on scroll) */}
-      <div className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 px-6 pt-10 pb-4 shrink-0 transition-colors duration-200">
+      <div className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 px-4 sm:px-6 pt-10 pb-4 shrink-0 transition-colors duration-200">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
             <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400" />
@@ -430,42 +433,58 @@ export function UsersAdminPanel({ onChangeTab }: UsersAdminPanelProps) {
           <p>Controle de usuários, conteúdo, catálogo da loja e notificações automáticas.</p>
         </div>
 
-        <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-xl shadow-inner gap-1">
+        {/* Abas Principais com Rolagem Horizontal Suave e Arraste por Mouse no PC */}
+        <div 
+          {...mainTabsDragProps}
+          className="flex items-center gap-2 overflow-x-auto whitespace-nowrap scrollbar-none w-full p-1 bg-gray-100 dark:bg-slate-800 rounded-xl shadow-inner cursor-grab active:cursor-grabbing select-none touch-pan-x"
+        >
           <button
-            onClick={() => setMainTab('users')}
+            onClick={() => {
+              if (hasDraggedMainTabs.current) return;
+              setMainTab('users');
+            }}
+            draggable={false}
             className={cn(
-              "flex-1 min-w-0 py-2.5 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-semibold rounded-lg transition-all",
+              "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shrink-0 cursor-pointer select-none",
               mainTab === 'users'
                 ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm font-bold"
                 : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
             )}
           >
             <Users className="w-4 h-4 shrink-0" />
-            <span className="truncate"><span className="hidden sm:inline">Gestão de </span>Usuários</span>
+            <span>Gestão de Usuários</span>
           </button>
           <button
-            onClick={() => setMainTab('content')}
+            onClick={() => {
+              if (hasDraggedMainTabs.current) return;
+              setMainTab('content');
+            }}
+            draggable={false}
             className={cn(
-              "flex-1 min-w-0 py-2.5 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-semibold rounded-lg transition-all",
+              "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shrink-0 cursor-pointer select-none",
               mainTab === 'content'
                 ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm font-bold"
                 : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
             )}
           >
             <PlaySquare className="w-4 h-4 shrink-0" />
-            <span className="truncate"><span className="hidden sm:inline">Gestão de </span>Conteúdo</span>
+            <span>Gestão de Conteúdo</span>
           </button>
           <button
-            onClick={() => setMainTab('store')}
+            onClick={() => {
+              if (hasDraggedMainTabs.current) return;
+              setMainTab('store');
+            }}
+            draggable={false}
             className={cn(
-              "flex-1 min-w-0 py-2.5 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-semibold rounded-lg transition-all",
+              "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shrink-0 cursor-pointer select-none",
               mainTab === 'store'
                 ? "bg-white dark:bg-slate-700 text-yellow-600 dark:text-yellow-400 shadow-sm font-bold"
                 : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
             )}
           >
             <ShoppingBag className="w-4 h-4 text-yellow-500 shrink-0" />
-            <span className="truncate"><span className="hidden sm:inline">Gestão da </span>Loja</span>
+            <span>Gestão da Loja</span>
           </button>
         </div>
       </div>

@@ -13,10 +13,12 @@ import {
 import { 
   ref, 
   uploadBytes, 
+  uploadBytesResumable, 
   getDownloadURL, 
   deleteObject 
 } from 'firebase/storage';
 import { db, storage, auth } from '../lib/firebase';
+import { compressProductImage } from '../utils/imageCompressor';
 import { 
   StoreCategory, 
   StoreProduct, 
@@ -277,16 +279,107 @@ export async function softDeleteStoreProduct(id: string): Promise<void> {
 }
 
 /**
- * Upload de Foto para o Firebase Storage
- * Salva em store_products/${productId}/${timestamp}_${fileName}
+ * Upload de Foto para a Loja com Compressão Automática & Alta Resiliência
+ * Salva no Firebase Storage ou via Backend API com fallback instantâneo para WebP otimizado
  */
-export async function uploadProductImage(file: File, productId: string): Promise<string> {
-  const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path = `store_products/${productId}/${Date.now()}_${cleanName}`;
-  const fileRef = ref(storage, path);
-  await uploadBytes(fileRef, file);
-  const downloadUrl = await getDownloadURL(fileRef);
-  return downloadUrl;
+export async function uploadProductImage(
+  file: File, 
+  productId: string, 
+  onProgress?: (progressPercent: number) => void
+): Promise<string> {
+  // 1. Compressão client-side (Max 1200px, WebP 80% ou JPEG) -> gera blob super leve (~30-80KB)
+  const { blob, fileName, mimeType } = await compressProductImage(file, 1200, 0.8);
+  if (onProgress) onProgress(30);
+
+  // Converter blob para base64 Data URL
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Falha ao processar arquivo de imagem'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Erro ao ler a imagem.'));
+    reader.readAsDataURL(blob);
+  });
+  if (onProgress) onProgress(60);
+
+  // 2. Tentar upload via API Server-side
+  try {
+    const res = await fetch('/api/store/upload-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        base64: dataUrl,
+        mimeType,
+        fileName,
+        productId
+      })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.url) {
+        if (onProgress) onProgress(100);
+        return data.url;
+      }
+    }
+  } catch (apiErr) {
+    console.warn('[storeService] API /api/store/upload-image indisponível, tentando Client SDK:', apiErr);
+  }
+
+  // 3. Tentar via Firebase Storage Client SDK com timeout protegido
+  try {
+    const cleanName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `store/products/${productId}/${Date.now()}_${cleanName}`;
+    const fileRef = ref(storage, path);
+
+    const uploadTask = uploadBytesResumable(fileRef, blob, {
+      contentType: mimeType,
+      cacheControl: 'public,max-age=31536000'
+    });
+
+    const storageUrl = await new Promise<string>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        try { uploadTask.cancel(); } catch {}
+        reject(new Error('Storage timeout'));
+      }, 8000);
+
+      uploadTask.on(
+        'state_changed',
+        (snapshot) => {
+          if (snapshot.totalBytes > 0 && onProgress) {
+            const percent = 60 + Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 40);
+            onProgress(Math.min(99, percent));
+          }
+        },
+        (err) => {
+          clearTimeout(timeoutId);
+          reject(err);
+        },
+        async () => {
+          clearTimeout(timeoutId);
+          try {
+            const url = await getDownloadURL(fileRef);
+            resolve(url);
+          } catch (e) {
+            reject(e);
+          }
+        }
+      );
+    });
+
+    if (onProgress) onProgress(100);
+    return storageUrl;
+  } catch (storageErr) {
+    console.warn('[storeService] Firebase Storage client upload indisponível, usando WebP otimizado:', storageErr);
+  }
+
+  // 4. Fallback final garantido: Retorna o WebP Data URL ultra leve
+  if (onProgress) onProgress(100);
+  return dataUrl;
 }
 
 /**
@@ -314,11 +407,115 @@ export async function deleteProductImageFromStorage(imageUrl: string): Promise<b
 /**
  * 3. PEDIDOS (store_orders)
  */
+
+/**
+ * Busca EXCLUSIVA dos pedidos do usuário logado (Tela 'Meus Pedidos' no Perfil).
+ * OBRIGATÓRIO: Filtra estritamente por userId na API, na query do Firestore e em memória,
+ * garantindo isolamento total (o usuário nunca visualizará pedidos de outros clientes).
+ */
+export async function getUserStoreOrders(userId: string, userEmail?: string): Promise<StoreOrder[]> {
+  if (!userId || typeof userId !== 'string' || userId.trim() === '') {
+    return [];
+  }
+
+  const cleanUserId = userId.trim();
+  const cleanEmail = userEmail ? userEmail.trim().toLowerCase() : '';
+  let rawOrders: StoreOrder[] = [];
+
+  // 1. Tentar buscar via API Server-side com query param userId
+  try {
+    const url = `/api/store/orders?userId=${encodeURIComponent(cleanUserId)}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.orders)) {
+        rawOrders = data.orders.map((d: any) => ({
+          orderId: d.orderId || d.id,
+          userId: d.userId || '',
+          userEmail: d.userEmail || '',
+          userName: d.userName || '',
+          productId: d.productId || '',
+          productName: d.productName || '',
+          productImage: d.productImage || '',
+          totalPrice: Number(d.totalPrice) || 0,
+          status: (d.status || 'Aguardando Pagamento') as StoreOrderStatus,
+          trackingCode: d.trackingCode || '',
+          deliveryAddress: d.deliveryAddress || undefined,
+          paymentId: d.paymentId || undefined,
+          deliveredAt: d.deliveredAt || undefined,
+          autoDeliveredViaCron: d.autoDeliveredViaCron || false,
+          createdAt: d.createdAt || '',
+          updatedAt: d.updatedAt || ''
+        }));
+      }
+    }
+  } catch (apiErr) {
+    console.warn('[storeService] API /api/store/orders indisponível, buscando via Firestore Client');
+  }
+
+  // 2. Se a API estiver offline ou vazia, busca via Firestore Client SDK com filtro OBRIGATÓRIO de userId
+  if (rawOrders.length === 0) {
+    try {
+      const colRef = collection(db, 'store_orders');
+      const q = query(colRef, where('userId', '==', cleanUserId));
+      const snap = await getDocs(q);
+
+      snap.forEach((docSnap) => {
+        const d = docSnap.data();
+        rawOrders.push({
+          orderId: docSnap.id,
+          userId: d.userId || '',
+          userEmail: d.userEmail || '',
+          userName: d.userName || '',
+          productId: d.productId || '',
+          productName: d.productName || '',
+          productImage: d.productImage || '',
+          totalPrice: Number(d.totalPrice) || 0,
+          status: (d.status || 'Aguardando Pagamento') as StoreOrderStatus,
+          trackingCode: d.trackingCode || '',
+          deliveryAddress: d.deliveryAddress || undefined,
+          paymentId: d.paymentId || undefined,
+          deliveredAt: d.deliveredAt || undefined,
+          autoDeliveredViaCron: d.autoDeliveredViaCron || false,
+          createdAt: d.createdAt || '',
+          updatedAt: d.updatedAt || ''
+        });
+      });
+    } catch (err) {
+      console.warn('[storeService] Firestore query error in getUserStoreOrders:', err);
+    }
+  }
+
+  // 3. DUPLO FILTRO ESTRITO DE SEGURANÇA EM MEMÓRIA:
+  // Impede terminantemente a exibição de pedidos de outros clientes no perfil
+  const filtered = rawOrders.filter((o) => {
+    const matchesUid = o.userId === cleanUserId;
+    const matchesEmail = cleanEmail && o.userEmail && o.userEmail.toLowerCase() === cleanEmail;
+    return matchesUid || matchesEmail;
+  });
+
+  filtered.sort((a, b) => {
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return timeB - timeA;
+  });
+
+  return filtered;
+}
+
+/**
+ * Consulta de Pedidos da Loja:
+ * - Se fornecido userId: delega para getUserStoreOrders (isolamento estrito do usuário).
+ * - Se chamado sem parâmetros: busca global para a Central Administrativa (Painel Admin).
+ */
 export async function getStoreOrders(userId?: string): Promise<StoreOrder[]> {
+  if (userId) {
+    return getUserStoreOrders(userId);
+  }
+
   // 1. Tentar buscar via API Server-side (100% resiliente a regras, autenticação e índices)
   try {
-    const url = userId ? `/api/store/orders?userId=${encodeURIComponent(userId)}` : '/api/store/orders';
-    const res = await fetch(url);
+    const res = await fetch('/api/store/orders');
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.orders)) {
@@ -329,23 +526,16 @@ export async function getStoreOrders(userId?: string): Promise<StoreOrder[]> {
     console.warn('[storeService] API /api/store/orders indisponível, usando fallback Firestore');
   }
 
-  // 2. Fallback via Firestore Client SDK
+  // 2. Fallback via Firestore Client SDK (Somente se houver usuário autenticado administrador)
   try {
+    if (!auth.currentUser) return [];
     const colRef = collection(db, 'store_orders');
     let snap;
-    if (userId) {
-      // Query apenas por userId para não exigir índice composto
-      const q = query(colRef, where('userId', '==', userId));
+    try {
+      const q = query(colRef, orderBy('createdAt', 'desc'));
       snap = await getDocs(q);
-    } else {
-      // Somente busca todos os pedidos se houver usuário autenticado (admin)
-      if (!auth.currentUser) return [];
-      try {
-        const q = query(colRef, orderBy('createdAt', 'desc'));
-        snap = await getDocs(q);
-      } catch {
-        snap = await getDocs(colRef);
-      }
+    } catch {
+      snap = await getDocs(colRef);
     }
 
     const orders: StoreOrder[] = [];
@@ -419,19 +609,64 @@ export async function updateStoreOrderStatusApi(params: {
   orderId: string;
   status: StoreOrderStatus;
   trackingCode?: string;
+  deliveryAddress?: StoreDeliveryAddress;
+  userName?: string;
+  userEmail?: string;
+  totalPrice?: number;
+  notes?: string;
 }): Promise<any> {
-  const response = await fetch('/api/store/orders/update-status', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params)
-  });
+  try {
+    const response = await fetch('/api/store/orders/update-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
 
-  const data = await response.json();
-  if (!response.ok || !data.success) {
-    throw new Error(data.error || 'Falha ao atualizar pedido');
+    const data = await response.json();
+    if (response.ok && data.success) {
+      return data;
+    }
+  } catch (apiErr) {
+    console.warn('[storeService] API update-status error, falling back to Firestore:', apiErr);
   }
 
-  return data;
+  // Fallback direto ao Firestore
+  try {
+    const docRef = doc(db, 'store_orders', params.orderId);
+    const updateData: any = {
+      status: params.status,
+      updatedAt: new Date().toISOString()
+    };
+    if (params.trackingCode !== undefined) {
+      updateData.trackingCode = params.trackingCode.trim().toUpperCase();
+    }
+    if (params.deliveryAddress !== undefined) {
+      updateData.deliveryAddress = params.deliveryAddress;
+    }
+    if (params.userName !== undefined) {
+      updateData.userName = params.userName;
+    }
+    if (params.userEmail !== undefined) {
+      updateData.userEmail = params.userEmail;
+    }
+    if (params.totalPrice !== undefined) {
+      updateData.totalPrice = Number(params.totalPrice);
+    }
+    if (params.notes !== undefined) {
+      updateData.notes = params.notes;
+    }
+    if (params.status === 'Enviado') {
+      updateData.shippedAt = new Date().toISOString();
+    }
+    if (params.status === 'Entregue') {
+      updateData.deliveredAt = new Date().toISOString();
+    }
+    await updateDoc(docRef, updateData);
+    return { success: true };
+  } catch (firestoreErr: any) {
+    console.error('[storeService] Error updating order via Firestore fallback:', firestoreErr);
+    throw new Error(firestoreErr?.message || 'Falha ao atualizar pedido');
+  }
 }
 
 /**
@@ -455,5 +690,87 @@ export async function triggerCheckDeliveriesCron(): Promise<{
   }
 
   return data;
+}
+
+/**
+ * Excluir Pedido da Loja Individualmente
+ */
+export async function deleteStoreOrder(orderId: string): Promise<{ success: boolean }> {
+  // 1. Tentar via API Server-side
+  try {
+    const res = await fetch(`/api/store/orders/${orderId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success) {
+        return { success: true };
+      }
+    }
+  } catch (err) {
+    console.warn('[storeService] Falha ao excluir pedido via API, tentando fallback direto Firestore:', err);
+  }
+
+  // 2. Fallback direto via Firestore Client SDK
+  try {
+    const docRef = doc(db, 'store_orders', orderId);
+    await deleteDoc(docRef);
+    return { success: true };
+  } catch (firestoreErr) {
+    console.error('[storeService] Erro ao excluir pedido no Firestore:', firestoreErr);
+    throw new Error('Não foi possível excluir o pedido.');
+  }
+}
+
+/**
+ * Excluir/Limpar Pedidos de Teste (Ativos e Histórico)
+ */
+export async function clearAllTestOrders(orderIds?: string[]): Promise<{ success: boolean; deletedCount: number }> {
+  // 1. Tentar via API Server-side
+  try {
+    const res = await fetch('/api/store/orders/clear-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderIds, all: !orderIds || orderIds.length === 0 })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success) {
+        return { success: true, deletedCount: data.deletedCount || 0 };
+      }
+    }
+  } catch (err) {
+    console.warn('[storeService] Falha ao limpar pedidos via API, tentando fallback Firestore:', err);
+  }
+
+  // 2. Fallback client-side
+  try {
+    let deletedCount = 0;
+    if (orderIds && orderIds.length > 0) {
+      for (const id of orderIds) {
+        try {
+          await deleteDoc(doc(db, 'store_orders', id));
+          deletedCount++;
+        } catch (e) {
+          console.warn(`[storeService] Erro ao deletar doc ${id}:`, e);
+        }
+      }
+    } else {
+      const snap = await getDocs(collection(db, 'store_orders'));
+      for (const docSnap of snap.docs) {
+        try {
+          await deleteDoc(docSnap.ref);
+          deletedCount++;
+        } catch (e) {
+          console.warn(`[storeService] Erro ao deletar doc ${docSnap.id}:`, e);
+        }
+      }
+    }
+    return { success: true, deletedCount };
+  } catch (err) {
+    console.error('[storeService] Erro ao limpar pedidos de teste:', err);
+    throw new Error('Falha ao limpar pedidos de teste.');
+  }
 }
 

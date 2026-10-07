@@ -83,22 +83,31 @@ export async function handleGetStoreProducts(req: Request, res: Response) {
  */
 export async function handleGetStoreOrders(req: Request, res: Response) {
   try {
-    const userId = req.query.userId as string | undefined;
+    const rawUserId = req.query.userId as string | undefined;
+    const userId = rawUserId && rawUserId !== 'undefined' && rawUserId !== 'null' && rawUserId.trim() !== '' 
+      ? rawUserId.trim() 
+      : undefined;
+
     const firestore = getFirestore();
     let snap: FirebaseFirestore.QuerySnapshot;
+    const orders: any[] = [];
 
     if (userId) {
-      // Query apenas por userId para não exigir índice composto (evita 9 FAILED_PRECONDITION)
+      // Query estrita por userId para a tela Meus Pedidos no Perfil do usuário
       snap = await firestore.collection('store_orders').where('userId', '==', userId).get();
+      snap.forEach((doc) => {
+        const data = doc.data();
+        if (data.userId === userId) {
+          orders.push({ orderId: doc.id, ...data });
+        }
+      });
     } else {
-      // Consulta admin de todos os pedidos
+      // Consulta restrita ao Painel Admin de todos os pedidos da loja
       snap = await firestore.collection('store_orders').get();
+      snap.forEach((doc) => {
+        orders.push({ orderId: doc.id, ...doc.data() });
+      });
     }
-
-    const orders: any[] = [];
-    snap.forEach((doc) => {
-      orders.push({ orderId: doc.id, ...doc.data() });
-    });
 
     // Ordenação garantida em memória pelo mais recente (createdAt decrescente)
     orders.sort((a, b) => {
@@ -210,9 +219,9 @@ export async function handleCreateStorePreference(req: Request, res: Response) {
           type: 'store_order'
         },
         back_urls: {
-          success: `${appBaseUrl}/?tab=profile&subTab=orders&orderId=${orderId}&payment=success`,
-          pending: `${appBaseUrl}/?tab=profile&subTab=orders&orderId=${orderId}&payment=pending`,
-          failure: `${appBaseUrl}/?tab=store&orderId=${orderId}&payment=failure`
+          success: `${appBaseUrl}/?tab=profile&subTab=orders&orderId=${orderId}&payment=success&type=store_order`,
+          pending: `${appBaseUrl}/?tab=profile&subTab=orders&orderId=${orderId}&payment=pending&type=store_order`,
+          failure: `${appBaseUrl}/?tab=store&orderId=${orderId}&payment=failure&type=store_order`
         },
         auto_return: 'approved'
       }
@@ -272,13 +281,14 @@ export async function handleProcessStoreOrderPayment(paymentData: any, firestore
           console.log(`[Store Webhook] Estoque atualizado para o produto ${order.productId}: ${currentStock} -> ${newStock}`);
         }
 
-        transaction.update(orderRef, {
+        // Idempotência e Chave Única garantida: atualiza com setDoc merge: true
+        transaction.set(orderRef, {
           status: 'Preparando Envio',
           paymentId: String(paymentData.id),
           paymentMethod: paymentData.payment_method_id ? String(paymentData.payment_method_id).toUpperCase() : 'Mercado Pago',
           paidAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
-        });
+        }, { merge: true });
       });
 
       console.log(`[Store Webhook] ✅ Pedido ${externalRef} aprovado e atualizado para 'Preparando Envio' com sucesso!`);
@@ -298,7 +308,7 @@ export async function handleProcessStoreOrderPayment(paymentData: any, firestore
  */
 export async function handleUpdateStoreOrderStatus(req: Request, res: Response) {
   try {
-    const { orderId, status, trackingCode } = req.body;
+    const { orderId, status, trackingCode, deliveryAddress, userName, userEmail, totalPrice, notes } = req.body;
 
     if (!orderId || !status) {
       return res.status(400).json({ error: 'orderId e status são obrigatórios' });
@@ -324,6 +334,22 @@ export async function handleUpdateStoreOrderStatus(req: Request, res: Response) 
       trackingCode: cleanTracking,
       updatedAt: new Date().toISOString()
     };
+
+    if (deliveryAddress !== undefined) {
+      updatePayload.deliveryAddress = deliveryAddress;
+    }
+    if (userName !== undefined) {
+      updatePayload.userName = userName;
+    }
+    if (userEmail !== undefined) {
+      updatePayload.userEmail = userEmail;
+    }
+    if (totalPrice !== undefined && !isNaN(Number(totalPrice))) {
+      updatePayload.totalPrice = Number(totalPrice);
+    }
+    if (notes !== undefined) {
+      updatePayload.notes = notes;
+    }
 
     const isTransitionToShipped = (oldStatus !== 'Enviado' && newStatus === 'Enviado');
     if (isTransitionToShipped) {
@@ -714,6 +740,95 @@ export async function handleDeleteStoreProduct(req: Request, res: Response) {
   } catch (err: any) {
     console.error('[API Store] Error deleting product:', err);
     return res.status(500).json({ error: err?.message || 'Falha ao excluir produto' });
+  }
+}
+
+/**
+ * 6. Excluir Pedido da Loja Individualmente (Server-side com Firebase Admin)
+ */
+export async function handleDeleteStoreOrder(req: Request, res: Response) {
+  try {
+    const id = req.params.id || req.body.orderId || req.body.id;
+    if (!id) {
+      return res.status(400).json({ error: 'ID do pedido é obrigatório' });
+    }
+
+    const firestore = getFirestore();
+    const docRef = firestore.collection('store_orders').doc(id);
+    const snap = await docRef.get();
+
+    if (!snap.exists) {
+      return res.json({ success: true, message: 'Pedido já não existia ou foi removido' });
+    }
+
+    await docRef.delete();
+    console.log(`[API Store] Pedido ${id} excluído com sucesso do Firestore`);
+    return res.json({ success: true, deletedOrderId: id });
+  } catch (err: any) {
+    console.error('[API Store] Erro ao excluir pedido:', err);
+    return res.status(500).json({ error: err?.message || 'Falha ao excluir pedido' });
+  }
+}
+
+/**
+ * 6.1 Limpar/Excluir Pedidos de Teste em Massa (Server-side com Firebase Admin)
+ */
+export async function handleClearStoreOrders(req: Request, res: Response) {
+  try {
+    const firestore = getFirestore();
+    const { orderIds, all = true } = req.body || {};
+
+    let deletedCount = 0;
+
+    if (Array.isArray(orderIds) && orderIds.length > 0) {
+      // Excluir IDs específicos fornecidos
+      const batch = firestore.batch();
+      for (const id of orderIds) {
+        batch.delete(firestore.collection('store_orders').doc(id));
+        deletedCount++;
+      }
+      await batch.commit();
+    } else if (all) {
+      // Excluir todos os pedidos de teste armazenados
+      const snap = await firestore.collection('store_orders').get();
+      if (!snap.empty) {
+        const batch = firestore.batch();
+        snap.forEach((doc) => {
+          batch.delete(doc.ref);
+          deletedCount++;
+        });
+        await batch.commit();
+      }
+    }
+
+    console.log(`[API Store] Limpeza de pedidos concluída. Total excluído: ${deletedCount}`);
+    return res.json({ success: true, deletedCount });
+  } catch (err: any) {
+    console.error('[API Store] Erro ao limpar pedidos de teste:', err);
+    return res.status(500).json({ error: err?.message || 'Falha ao limpar pedidos' });
+  }
+}
+
+/**
+ * 7. Upload Resiliente de Foto de Produto (com suporte a base64 / Data URL)
+ */
+export async function handleUploadStoreImage(req: Request, res: Response) {
+  try {
+    const { base64, mimeType, fileName, productId } = req.body || {};
+    if (!base64) {
+      return res.status(400).json({ error: 'base64 da imagem é obrigatório' });
+    }
+
+    const type = mimeType || 'image/webp';
+    const dataUrl = base64.startsWith('data:') ? base64 : `data:${type};base64,${base64}`;
+
+    return res.json({
+      success: true,
+      url: dataUrl
+    });
+  } catch (err: any) {
+    console.error('[API Store] Erro no processamento de upload da foto:', err);
+    return res.status(500).json({ error: err?.message || 'Falha ao processar imagem' });
   }
 }
 

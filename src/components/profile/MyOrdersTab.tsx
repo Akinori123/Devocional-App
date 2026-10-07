@@ -16,7 +16,8 @@ import {
   X
 } from 'lucide-react';
 import { StoreOrder } from '../../types';
-import { getStoreOrders, updateStoreOrderStatusApi } from '../../services/storeService';
+import { getUserStoreOrders, updateStoreOrderStatusApi } from '../../services/storeService';
+import { WHATSAPP_SUPPORT_PHONE, getWhatsAppSupportUrl } from '../../constants/support';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { cn } from '../../lib/utils';
@@ -41,13 +42,18 @@ export function MyOrdersTab({ onGoToStore }: MyOrdersTabProps) {
 
   useEffect(() => {
     loadUserOrders();
-  }, [user?.uid]);
+  }, [user?.uid, user?.email]);
 
   const loadUserOrders = async () => {
-    if (!user?.uid) return;
+    if (!user?.uid) {
+      setOrders([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const data = await getStoreOrders(user.uid);
+      // Busca EXCLUSIVAMENTE pedidos deste usuário logado (query por userId + isolamento estrito)
+      const data = await getUserStoreOrders(user.uid, user.email || undefined);
       setOrders(data);
     } catch (err) {
       console.error('Erro ao carregar meus pedidos:', err);
@@ -70,17 +76,16 @@ export function MyOrdersTab({ onGoToStore }: MyOrdersTabProps) {
    * Outros status: Mensagem de acompanhamento padrão
    */
   const handleOpenWhatsAppSupport = (order: StoreOrder) => {
-    const rawNumber = '5511999999999'; // Número oficial da central Florescer
     let message = '';
     
     if (order.status === 'Entregue') {
-      message = `Olá, meu pedido #${order.orderId} foi entregue e preciso de ajuda com uma troca ou devolução do produto (${order.productName}).`;
+      message = `Olá, meu pedido #${order.orderId} foi entregue e preciso de ajuda com uma troca ou devolução do produto (${order.productName || 'produto'}).`;
     } else {
-      message = `Olá, preciso de ajuda com o meu pedido #${order.orderId} - ${order.productName}.`;
+      message = `Olá, gostaria de informações sobre o andamento do meu pedido #${order.orderId} (${order.productName || 'Florescer'}).`;
     }
 
-    const url = `https://wa.me/${rawNumber}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
+    const url = getWhatsAppSupportUrl(message, WHATSAPP_SUPPORT_PHONE);
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   /**
@@ -198,7 +203,7 @@ export function MyOrdersTab({ onGoToStore }: MyOrdersTabProps) {
               <div className="flex flex-wrap sm:flex-nowrap items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-3 gap-2">
                 <div className="flex items-center gap-1.5 min-w-0 max-w-full">
                   <span 
-                    className="text-xs font-mono font-bold text-gray-500 dark:text-gray-400 truncate max-w-[130px] xs:max-w-[180px] sm:max-w-none inline-block align-middle"
+                    className="text-xs font-mono font-bold text-gray-500 dark:text-gray-400 truncate max-w-[130px] xs:max-w-[160px] inline-block align-middle"
                     title={`#${order.orderId}`}
                   >
                     #{order.orderId}

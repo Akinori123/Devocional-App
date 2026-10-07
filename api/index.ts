@@ -21,7 +21,10 @@ import {
   handleDeleteStoreCategory,
   handleCreateStoreProduct,
   handleUpdateStoreProduct,
-  handleDeleteStoreProduct
+  handleDeleteStoreProduct,
+  handleDeleteStoreOrder,
+  handleClearStoreOrders,
+  handleUploadStoreImage
 } from './store.js';
 
 dotenv.config();
@@ -564,7 +567,8 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
@@ -834,6 +838,22 @@ const handleCheckPaymentStatus = async (req: express.Request, res: express.Respo
     const paymentData = await payment.get({ id: Number(paymentId) });
 
     if (paymentData.status === 'approved') {
+      // SEGURANÇA CRÍTICA: Isolar pedidos da Loja de compras de assinatura VIP
+      const isStoreOrder = 
+        (paymentData.metadata as any)?.type === 'store_order' ||
+        (typeof paymentData.external_reference === 'string' && paymentData.external_reference.startsWith('ord_'));
+
+      if (isStoreOrder) {
+        console.log(`[Check Status] Pedido da Loja Florescer (${paymentData.external_reference}) aprovado. Isolamento estrito de assinatura.`);
+        const firestore = getFirestore();
+        await handleProcessStoreOrderPayment(paymentData, firestore);
+        return res.json({ 
+          status: 'approved', 
+          type: 'store_order', 
+          orderId: paymentData.external_reference || (paymentData.metadata as any)?.order_id 
+        });
+      }
+
       const userId = (paymentData.metadata as any)?.user_id || paymentData.external_reference || (paymentData.payer as any)?.email;
       if (userId) {
         const meta = (paymentData.metadata as any) || {};
@@ -1104,11 +1124,16 @@ const handleMercadoPagoWebhook = async (req: express.Request, res: express.Respo
           const paymentData = await paymentInstance.get({ id: Number(paymentId) });
           
           // Isolamento Estrito: Se for pedido de e-commerce da Loja Florescer, processa com idempotência e baixa de estoque
-          if (paymentData.status === 'approved') {
-            const isStore = await handleProcessStoreOrderPayment(paymentData, firestore);
-            if (isStore) {
-              return res.status(200).send("OK");
+          const isStoreOrder = 
+            (paymentData.metadata as any)?.type === 'store_order' ||
+            (typeof paymentData.external_reference === 'string' && paymentData.external_reference.startsWith('ord_'));
+
+          if (isStoreOrder) {
+            console.log(`[MP Webhook] Pedido da Loja Florescer (${paymentData.external_reference || paymentId}), status: ${paymentData.status}. Isolamento total de permissões VIP.`);
+            if (paymentData.status === 'approved') {
+              await handleProcessStoreOrderPayment(paymentData, firestore);
             }
+            return res.status(200).send("OK");
           }
 
           const userId = (paymentData.metadata as any)?.user_id || paymentData.external_reference || (paymentData.payer as any)?.email;
@@ -1187,10 +1212,15 @@ app.get("/api/store/products", handleGetStoreProducts);
 app.post("/api/store/products", handleCreateStoreProduct);
 app.put("/api/store/products/:id", handleUpdateStoreProduct);
 app.delete("/api/store/products/:id", handleDeleteStoreProduct);
+app.post("/api/store/upload-image", handleUploadStoreImage);
 
 app.get("/api/store/orders", handleGetStoreOrders);
 app.post("/api/store/create-preference", handleCreateStorePreference);
 app.post("/api/store/orders/update-status", handleUpdateStoreOrderStatus);
+app.delete("/api/store/orders/:id", handleDeleteStoreOrder);
+app.post("/api/store/orders/:id/delete", handleDeleteStoreOrder);
+app.post("/api/store/orders/clear-test", handleClearStoreOrders);
+app.delete("/api/store/orders/clear-test", handleClearStoreOrders);
 
 // Endpoint para Listagem de Usuários no Painel Administrativo com Auto-Recuperação de E-mails via Firebase Auth (Data Patch)
 app.get("/api/admin/users", async (req, res) => {

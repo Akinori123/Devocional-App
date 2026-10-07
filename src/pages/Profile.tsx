@@ -12,6 +12,13 @@ import { cn } from '../lib/utils';
 import { MessageCircle, Mail, Heart, Package } from 'lucide-react';
 import { TabType } from '../types';
 import { useDragScroll } from '../hooks/useDragScroll';
+import { 
+  WHATSAPP_ORDERS_PHONE, 
+  WHATSAPP_ORDERS_FORMATTED,
+  WHATSAPP_GENERAL_PHONE, 
+  WHATSAPP_GENERAL_FORMATTED,
+  getWhatsAppSupportUrl 
+} from '../constants/support';
 
 export type ProfileTab = 'diary' | 'verses' | 'videos' | 'subscription' | 'settings' | 'orders';
 
@@ -191,28 +198,58 @@ export function Profile({ initialTab = 'diary', onChangeTab, onNavigateToBible }
       {/* Support Modal */}
       {showSupportModal && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-sm shadow-xl overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-md shadow-xl overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-6 text-center">
               <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center mx-auto mb-4">
                 <MessageCircle className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Suporte Florescer</h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
-                Fale diretamente conosco pelo WhatsApp para tirar dúvidas sobre sua assinatura ou o aplicativo.
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Canais de Atendimento Florescer</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-5">
+                Escolha o canal de WhatsApp adequado para falar diretamente com nossa equipe:
               </p>
               
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 text-left">
+                {/* Canal 1: Suporte a Pedidos e Loja */}
                 <a
-                  href="https://wa.me/5511999999999"
+                  href={getWhatsAppSupportUrl('Olá, gostaria de suporte sobre meus pedidos e compras na Loja Florescer.', WHATSAPP_ORDERS_PHONE)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full bg-[#25D366] hover:bg-[#1ebe57] text-white font-bold py-3 px-4 rounded-xl flex justify-center items-center gap-2 transition-colors shadow-sm"
+                  className="w-full bg-[#25D366] hover:bg-[#1ebe57] text-white p-3.5 rounded-xl flex items-center justify-between transition-all shadow-sm group"
                 >
-                  Abrir WhatsApp
+                  <div className="flex items-center gap-3">
+                    <Package className="w-5 h-5 flex-shrink-0" />
+                    <div>
+                      <div className="font-bold text-sm">Suporte a Pedidos & Loja</div>
+                      <div className="text-xs text-white/90">Envios, rastreios, trocas e devoluções</div>
+                    </div>
+                  </div>
+                  <span className="text-xs font-semibold bg-white/20 px-2 py-0.5 rounded-md whitespace-nowrap">
+                    {WHATSAPP_ORDERS_FORMATTED}
+                  </span>
                 </a>
+
+                {/* Canal 2: Atendimento Geral e Sugestões */}
+                <a
+                  href={getWhatsAppSupportUrl('Olá, gostaria de falar sobre o aplicativo Florescer (atendimento geral, dúvidas ou sugestões).', WHATSAPP_GENERAL_PHONE)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white p-3.5 rounded-xl flex items-center justify-between transition-all shadow-sm group"
+                >
+                  <div className="flex items-center gap-3">
+                    <MessageCircle className="w-5 h-5 flex-shrink-0" />
+                    <div>
+                      <div className="font-bold text-sm">Atendimento & Sugestões</div>
+                      <div className="text-xs text-white/90">Dúvidas do app, planos e sugestões</div>
+                    </div>
+                  </div>
+                  <span className="text-xs font-semibold bg-white/20 px-2 py-0.5 rounded-md whitespace-nowrap">
+                    {WHATSAPP_GENERAL_FORMATTED}
+                  </span>
+                </a>
+
                 <button
                   onClick={() => setShowSupportModal(false)}
-                  className="w-full py-3 text-sm font-semibold text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+                  className="w-full py-2.5 text-sm font-semibold text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-colors mt-2 text-center"
                 >
                   Fechar
                 </button>
