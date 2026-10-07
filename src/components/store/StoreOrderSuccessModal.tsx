@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { PackageCheck, Truck, ArrowRight, X, ShieldCheck } from 'lucide-react';
+import { verifyStoreOrderPaymentApi } from '../../services/storeService';
 
 interface StoreOrderSuccessModalProps {
   onNavigateToOrders?: () => void;
@@ -18,6 +19,7 @@ export function StoreOrderSuccessModal({ onNavigateToOrders }: StoreOrderSuccess
     const urlParams = new URLSearchParams(window.location.search);
     const typeParam = urlParams.get('type') || urlParams.get('order_type');
     const orderIdParam = urlParams.get('orderId') || urlParams.get('external_reference');
+    const paymentIdParam = urlParams.get('payment_id') || urlParams.get('collection_id') || urlParams.get('data.id');
     const payParam = urlParams.get('payment');
     const statusParam = urlParams.get('status');
     const collectionStatus = urlParams.get('collection_status');
@@ -28,8 +30,19 @@ export function StoreOrderSuccessModal({ onNavigateToOrders }: StoreOrderSuccess
       (payParam === 'success' || payParam === 'pending' || statusParam === 'approved' || collectionStatus === 'approved');
 
     if (isStorePaymentReturn) {
-      setOrderId(orderIdParam || null);
+      const activeOrderId = orderIdParam || null;
+      setOrderId(activeOrderId);
       setIsOpen(true);
+
+      // Auto-sincronizar pagamento com o backend e Mercado Pago de forma resiliente
+      if (activeOrderId || paymentIdParam) {
+        verifyStoreOrderPaymentApi({
+          orderId: activeOrderId || undefined,
+          paymentId: paymentIdParam || undefined
+        }).catch((err) => {
+          console.warn('[StoreOrderSuccessModal] Auto verify payment notice:', err);
+        });
+      }
 
       if (!hasTriggeredRef.current) {
         hasTriggeredRef.current = true;

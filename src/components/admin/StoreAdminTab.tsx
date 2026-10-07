@@ -50,7 +50,9 @@ import {
   updateStoreOrderStatusApi,
   triggerCheckDeliveriesCron,
   deleteStoreOrder,
-  clearAllTestOrders
+  clearAllTestOrders,
+  verifyStoreOrderPaymentApi,
+  deduplicateStoreOrdersApi
 } from '../../services/storeService';
 import { useToast } from '../../context/ToastContext';
 import { cn } from '../../lib/utils';
@@ -117,6 +119,8 @@ export function StoreAdminTab() {
   // Modal de Edição Completa de Pedido
   const [orderToEdit, setOrderToEdit] = useState<StoreOrder | null>(null);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const [verifyingOrderId, setVerifyingOrderId] = useState<string | null>(null);
+  const [isDeduplicating, setIsDeduplicating] = useState(false);
   const [editOrderForm, setEditOrderForm] = useState<{
     status: StoreOrderStatus;
     trackingCode: string;
@@ -486,6 +490,48 @@ export function StoreAdminTab() {
       toast.error(err?.message || 'Falha ao sincronizar entregas com os Correios.');
     } finally {
       setIsSyncingDeliveries(false);
+    }
+  };
+
+  const handleVerifyOrderPayment = async (order: StoreOrder) => {
+    setVerifyingOrderId(order.orderId);
+    try {
+      const res = await verifyStoreOrderPaymentApi({
+        orderId: order.orderId,
+        paymentId: (order as any).paymentId
+      });
+
+      if (res.success && res.status !== 'Aguardando Pagamento') {
+        toast.success(res.message || 'Pagamento confirmado com sucesso!');
+        loadOrders();
+      } else {
+        toast.info(res.message || 'Nenhum pagamento aprovado foi localizado no Mercado Pago para este pedido até o momento.');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao consultar pagamento no Mercado Pago.');
+    } finally {
+      setVerifyingOrderId(null);
+    }
+  };
+
+  const handleDeduplicateOrders = async () => {
+    setIsDeduplicating(true);
+    try {
+      const res = await deduplicateStoreOrdersApi();
+      if (res.success) {
+        if (res.removedCount > 0) {
+          toast.success(`Deduplicação concluída! ${res.removedCount} pedido(s) duplicado(s) removido(s).`);
+        } else {
+          toast.success('Nenhum pedido duplicado pendente encontrado.');
+        }
+        loadOrders();
+      } else {
+        toast.error(res.message || 'Falha ao deduplicar pedidos.');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao remover pedidos duplicados.');
+    } finally {
+      setIsDeduplicating(false);
     }
   };
 
@@ -1040,16 +1086,34 @@ export function StoreAdminTab() {
               </button>
             </div>
 
-            {/* Ação de Sincronização dos Correios */}
-            <button
-              onClick={handleSyncDeliveries}
-              disabled={isSyncingDeliveries}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 dark:hover:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
-              title="Executa a verificação dos códigos de rastreio de pedidos enviados nos Correios"
-            >
-              <RefreshCw className={cn("w-3.5 h-3.5 shrink-0", isSyncingDeliveries && "animate-spin text-purple-600")} />
-              <span>{isSyncingDeliveries ? "Sincronizando..." : "Sincronizar Rastreios (Correios)"}</span>
-            </button>
+            {/* Ações de Gestão: Sincronização dos Correios e Limpeza de Duplicados */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
+              <button
+                type="button"
+                onClick={handleSyncDeliveries}
+                disabled={isSyncingDeliveries}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 dark:hover:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                title="Executa a verificação dos códigos de rastreio de pedidos enviados nos Correios"
+              >
+                <RefreshCw className={cn("w-3.5 h-3.5 shrink-0", isSyncingDeliveries && "animate-spin text-purple-600")} />
+                <span className="truncate">{isSyncingDeliveries ? "Sincronizando..." : "Sincronizar Rastreios"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDeduplicateOrders}
+                disabled={isDeduplicating}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                title="Verifica pagamentos no Mercado Pago e remove pedidos pendentes repetidos do mesmo usuário"
+              >
+                {isDeduplicating ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600 shrink-0" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                )}
+                <span className="truncate">{isDeduplicating ? "Sincronizando..." : "Limpar Duplicados & Sincronizar MP"}</span>
+              </button>
+            </div>
           </div>
 
           {/* Banner Explicativo de Conformidade e Garantia no Histórico */}
@@ -1086,10 +1150,9 @@ export function StoreAdminTab() {
                 className="flex items-center gap-2 w-full overflow-x-auto whitespace-nowrap scrollbar-none py-1 touch-pan-x cursor-grab active:cursor-grabbing select-none"
               >
                 {[
-                  { id: 'all', label: 'Todos os Ativos' },
+                  { id: 'all', label: 'Todos os Pagos / Ativos' },
                   { id: 'Preparando Envio', label: 'Preparando Envio' },
-                  { id: 'Enviado', label: 'Enviado' },
-                  { id: 'Aguardando Pagamento', label: 'Aguardando Pagamento' }
+                  { id: 'Enviado', label: 'Enviado' }
                 ].map((statusOption) => (
                   <button
                     key={statusOption.id}
@@ -1313,6 +1376,29 @@ export function StoreAdminTab() {
                           </button>
                         )}
                       </div>
+
+                      {/* Botão de Verificação Direta com Mercado Pago para pedidos em Aguardando Pagamento */}
+                      {order.status === 'Aguardando Pagamento' && (
+                        <button
+                          type="button"
+                          onClick={() => handleVerifyOrderPayment(order)}
+                          disabled={verifyingOrderId === order.orderId}
+                          className="w-full bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center justify-center gap-1.5 border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer disabled:opacity-50"
+                          title="Consultar e sincronizar pagamento no Mercado Pago"
+                        >
+                          {verifyingOrderId === order.orderId ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Consultando Mercado Pago...</span>
+                            </>
+                          ) : (
+                            <>
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              <span>Verificar Pagamento no Mercado Pago</span>
+                            </>
+                          )}
+                        </button>
+                      )}
 
                       {/* Dropdown de Troca de Status e Botões de Ação (Editar e Excluir) */}
                       <div className="w-full flex items-center justify-between gap-2 bg-gray-50/70 dark:bg-slate-800/40 p-2 rounded-xl border border-gray-100 dark:border-slate-800/80">

@@ -422,9 +422,9 @@ export async function getUserStoreOrders(userId: string, userEmail?: string): Pr
   const cleanEmail = userEmail ? userEmail.trim().toLowerCase() : '';
   let rawOrders: StoreOrder[] = [];
 
-  // 1. Tentar buscar via API Server-side com query param userId
+  // 1. Tentar buscar via API Server-side com query param userId e userEmail
   try {
-    const url = `/api/store/orders?userId=${encodeURIComponent(cleanUserId)}`;
+    const url = `/api/store/orders?userId=${encodeURIComponent(cleanUserId)}${cleanEmail ? `&userEmail=${encodeURIComponent(cleanEmail)}` : ''}`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
@@ -486,7 +486,7 @@ export async function getUserStoreOrders(userId: string, userEmail?: string): Pr
     }
   }
 
-  // 3. DUPLO FILTRO ESTRITO DE SEGURANÇA EM MEMÓRIA:
+  // 3. DUPLO FILTRO ESTRITO DE SEGURANÇA EM MEMÓRIA + DEDUPLICAÇÃO INTELIGENTE:
   // Impede terminantemente a exibição de pedidos de outros clientes no perfil
   const filtered = rawOrders.filter((o) => {
     const matchesUid = o.userId === cleanUserId;
@@ -500,7 +500,33 @@ export async function getUserStoreOrders(userId: string, userEmail?: string): Pr
     return timeB - timeA;
   });
 
-  return filtered;
+  // Se o usuário possui um pedido pago para o produto, remove tentativas duplicadas 'Aguardando Pagamento'
+  const productPaidMap = new Set<string>();
+  filtered.forEach(o => {
+    if (o.status && o.status !== 'Aguardando Pagamento') {
+      productPaidMap.add(o.productId || o.productName);
+    }
+  });
+
+  const finalOrders: StoreOrder[] = [];
+  const seenPendingProducts = new Set<string>();
+
+  filtered.forEach(o => {
+    const isPaid = o.status && o.status !== 'Aguardando Pagamento';
+    const key = o.productId || o.productName;
+
+    if (isPaid) {
+      finalOrders.push(o);
+    } else if (!productPaidMap.has(key)) {
+      // Se não tem pedido pago, mantém no máximo 1 pedido pendente por produto
+      if (!seenPendingProducts.has(key)) {
+        seenPendingProducts.add(key);
+        finalOrders.push(o);
+      }
+    }
+  });
+
+  return finalOrders;
 }
 
 /**
@@ -541,6 +567,10 @@ export async function getStoreOrders(userId?: string): Promise<StoreOrder[]> {
     const orders: StoreOrder[] = [];
     snap.forEach((docSnap) => {
       const d = docSnap.data();
+      const status = (d.status || 'Aguardando Pagamento') as StoreOrderStatus;
+      // Painel administrativo só exibe pedidos confirmados / com pagamento processado
+      if (status === 'Aguardando Pagamento') return;
+
       orders.push({
         orderId: docSnap.id,
         userId: d.userId || '',
@@ -550,7 +580,7 @@ export async function getStoreOrders(userId?: string): Promise<StoreOrder[]> {
         productName: d.productName || '',
         productImage: d.productImage || '',
         totalPrice: Number(d.totalPrice) || 0,
-        status: (d.status || 'Aguardando Pagamento') as StoreOrderStatus,
+        status,
         trackingCode: d.trackingCode || '',
         deliveryAddress: d.deliveryAddress || undefined,
         paymentId: d.paymentId || undefined,
@@ -563,12 +593,45 @@ export async function getStoreOrders(userId?: string): Promise<StoreOrder[]> {
 
     // Ordenação garantida em memória pelo mais recente
     orders.sort((a, b) => {
+      const hasTrackA = a.trackingCode ? 1 : 0;
+      const hasTrackB = b.trackingCode ? 1 : 0;
+      if (hasTrackA !== hasTrackB) return hasTrackB - hasTrackA;
       const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return timeB - timeA;
     });
 
-    return orders;
+    // Deduplicação inteligente para o painel admin:
+    const seenPaymentIds = new Set<string>();
+    const userProductMap = new Map<string, StoreOrder>();
+    const finalOrders: StoreOrder[] = [];
+
+    for (const ord of orders) {
+      if (ord.paymentId && seenPaymentIds.has(String(ord.paymentId))) {
+        continue;
+      }
+      if (ord.paymentId) {
+        seenPaymentIds.add(String(ord.paymentId));
+      }
+
+      const userKey = (ord.userId && ord.userId !== 'anonymous') ? ord.userId : (ord.userEmail || 'anon');
+      const prodKey = ord.productId || ord.productName || ord.orderId;
+      const groupKey = `${userKey}__${prodKey}`;
+
+      if (userProductMap.has(groupKey)) {
+        const existing = userProductMap.get(groupKey)!;
+        const isSameDay = existing.createdAt && ord.createdAt &&
+          existing.createdAt.substring(0, 10) === ord.createdAt.substring(0, 10);
+        if (isSameDay && !ord.trackingCode) {
+          continue;
+        }
+      }
+
+      userProductMap.set(groupKey, ord);
+      finalOrders.push(ord);
+    }
+
+    return finalOrders;
   } catch (err) {
     console.warn('[storeService] Fallback Firestore orders warning:', err);
     return [];
@@ -600,6 +663,29 @@ export async function createStoreCheckoutPreference(params: {
     init_point: data.init_point,
     orderId: data.orderId
   };
+}
+
+/**
+ * Verificar e sincronizar pagamento de pedido diretamente com o Mercado Pago
+ */
+export async function verifyStoreOrderPaymentApi(params: {
+  orderId?: string;
+  paymentId?: string;
+  userEmail?: string;
+}): Promise<{ success: boolean; status?: string; message?: string; orderId?: string }> {
+  try {
+    const response = await fetch('/api/store/verify-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+
+    const data = await response.json();
+    return data;
+  } catch (err: any) {
+    console.error('[storeService] Erro ao verificar pagamento:', err);
+    return { success: false, message: err?.message || 'Erro ao verificar pagamento' };
+  }
 }
 
 /**
@@ -771,6 +857,23 @@ export async function clearAllTestOrders(orderIds?: string[]): Promise<{ success
   } catch (err) {
     console.error('[storeService] Erro ao limpar pedidos de teste:', err);
     throw new Error('Falha ao limpar pedidos de teste.');
+  }
+}
+
+/**
+ * Deduplicar pedidos pendentes repetidos no Firestore
+ */
+export async function deduplicateStoreOrdersApi(): Promise<{ success: boolean; removedCount: number; message: string }> {
+  try {
+    const res = await fetch('/api/store/orders/deduplicate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    console.error('[storeService] Erro ao deduplicar pedidos:', err);
+    return { success: false, removedCount: 0, message: err?.message || 'Falha ao deduplicar pedidos' };
   }
 }
 

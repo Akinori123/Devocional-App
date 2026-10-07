@@ -16,7 +16,7 @@ import {
   X
 } from 'lucide-react';
 import { StoreOrder } from '../../types';
-import { getUserStoreOrders, updateStoreOrderStatusApi } from '../../services/storeService';
+import { getUserStoreOrders, updateStoreOrderStatusApi, verifyStoreOrderPaymentApi } from '../../services/storeService';
 import { WHATSAPP_SUPPORT_PHONE, getWhatsAppSupportUrl } from '../../constants/support';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -39,10 +39,37 @@ export function MyOrdersTab({ onGoToStore }: MyOrdersTabProps) {
   // Estado para Modal Anti-Missclick de Confirmação de Recebimento
   const [confirmModalOrder, setConfirmModalOrder] = useState<StoreOrder | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [verifyingOrderId, setVerifyingOrderId] = useState<string | null>(null);
+  const [customPaymentIdInput, setCustomPaymentIdInput] = useState<{ [orderId: string]: string }>({});
+  const [showPaymentIdInput, setShowPaymentIdInput] = useState<{ [orderId: string]: boolean }>({});
 
   useEffect(() => {
     loadUserOrders();
   }, [user?.uid, user?.email]);
+
+  const handleVerifyOrderPayment = async (order: StoreOrder, customPaymentId?: string) => {
+    setVerifyingOrderId(order.orderId);
+    try {
+      const res = await verifyStoreOrderPaymentApi({
+        orderId: order.orderId,
+        paymentId: customPaymentId || customPaymentIdInput[order.orderId] || (order as any).paymentId,
+        userEmail: user?.email || order.userEmail
+      });
+
+      if (res.success && res.status !== 'Aguardando Pagamento') {
+        const newStatus = (res.status as any) || 'Preparando Envio';
+        toast.success(res.message || 'Pagamento confirmado com sucesso!');
+        setOrders(prev => prev.map(o => o.orderId === order.orderId ? { ...o, status: newStatus } : o));
+        loadUserOrders();
+      } else {
+        toast.info(res.message || 'Nenhum pagamento aprovado foi localizado no Mercado Pago para este pedido até o momento.');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao consultar pagamento no Mercado Pago.');
+    } finally {
+      setVerifyingOrderId(null);
+    }
+  };
 
   const loadUserOrders = async () => {
     if (!user?.uid) {
@@ -270,6 +297,72 @@ export function MyOrdersTab({ onGoToStore }: MyOrdersTabProps) {
                   )}
                 </div>
               </div>
+
+              {/* Ações para Pedido com Pagamento Pendente */}
+              {isPending && (
+                <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 rounded-2xl p-3.5 space-y-2.5">
+                  <div className="flex items-center gap-2 text-xs font-bold text-amber-900 dark:text-amber-200">
+                    <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Aguardando Confirmação do Pagamento</span>
+                  </div>
+                  <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">
+                    Se você já realizou o pagamento no Mercado Pago, clique no botão abaixo para sincronizar e confirmar seu pedido imediatamente.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleVerifyOrderPayment(order)}
+                    disabled={verifyingOrderId === order.orderId}
+                    className="w-full py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {verifyingOrderId === order.orderId ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Verificando com Mercado Pago...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Já Paguei / Verificar Pagamento</span>
+                      </>
+                    )}
+                  </button>
+
+                  <div className="pt-1">
+                    {!showPaymentIdInput[order.orderId] ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowPaymentIdInput(prev => ({ ...prev, [order.orderId]: true }))}
+                        className="text-[11px] text-amber-700 dark:text-amber-400 hover:underline font-semibold w-full text-center cursor-pointer"
+                      >
+                        Tem o Nº da Operação/Comprovante do Mercado Pago? Clique aqui
+                      </button>
+                    ) : (
+                      <div className="space-y-1.5 pt-1">
+                        <label className="text-[10px] font-bold text-amber-900 dark:text-amber-300">
+                          Nº da Operação no Comprovante MP / Pix:
+                        </label>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={customPaymentIdInput[order.orderId] || ''}
+                            onChange={(e) => setCustomPaymentIdInput(prev => ({ ...prev, [order.orderId]: e.target.value }))}
+                            placeholder="Ex: 10482938491"
+                            className="flex-1 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800 rounded-xl px-2.5 py-1.5 text-xs text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleVerifyOrderPayment(order, customPaymentIdInput[order.orderId])}
+                            disabled={verifyingOrderId === order.orderId || !customPaymentIdInput[order.orderId]?.trim()}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            Confirmar
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Rastreamento e Ações para Pedido Enviado */}
               {isShipped && (
