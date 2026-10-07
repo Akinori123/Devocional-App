@@ -29,6 +29,10 @@
     {
       "path": "/api/cron/coins-reminder",
       "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/cron/check-deliveries",
+      "schedule": "0 10 * * *"
     }
   ]
 }

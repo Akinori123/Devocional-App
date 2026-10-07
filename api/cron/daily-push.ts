@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
-import { getDailyContent } from '../../src/data/dailyContent';
+import { getDailyContent } from '../../src/data/dailyContent.js';
 
 // Initialize Firebase Admin (only once, with multiple credential formats fallback)
 if (!getApps().length) {

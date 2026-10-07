@@ -9,9 +9,6 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getMessaging } from 'firebase-admin/messaging';
 import { MercadoPagoConfig, Preference, PreApproval, Payment } from 'mercadopago';
-import dailyPushHandler from './cron/daily-push';
-import coinsReminderHandler from './cron/coins-reminder';
-import checkDeliveriesHandler from './cron/check-deliveries';
 import { 
   handleCreateStorePreference, 
   handleUpdateStoreOrderStatus, 
@@ -25,7 +22,7 @@ import {
   handleCreateStoreProduct,
   handleUpdateStoreProduct,
   handleDeleteStoreProduct
-} from './store';
+} from './store.js';
 
 dotenv.config();
 
@@ -2239,9 +2236,34 @@ app.get("/api/coins/history/:userId", async (req, res) => {
 });
 
 // 4. Cron Jobs (standalone in /api/cron/* on Vercel and mounted in Express)
-app.all("/api/cron/daily-push", (req, res) => dailyPushHandler(req, res));
-app.all("/api/cron/coins-reminder", (req, res) => coinsReminderHandler(req, res));
-app.all("/api/cron/check-deliveries", (req, res) => checkDeliveriesHandler(req, res));
-app.all("/api/store/cron/check-deliveries", (req, res) => checkDeliveriesHandler(req, res));
+app.all("/api/cron/daily-push", async (req, res) => {
+  try {
+    const { default: handler } = await import("./cron/daily-push.js");
+    return handler(req, res);
+  } catch (err: any) {
+    console.error("[Cron daily-push] Handler error:", err);
+    return res.status(500).json({ error: err?.message || "Failed to execute daily-push cron" });
+  }
+});
+
+app.all("/api/cron/coins-reminder", async (req, res) => {
+  try {
+    const { default: handler } = await import("./cron/coins-reminder.js");
+    return handler(req, res);
+  } catch (err: any) {
+    console.error("[Cron coins-reminder] Handler error:", err);
+    return res.status(500).json({ error: err?.message || "Failed to execute coins-reminder cron" });
+  }
+});
+
+app.all(["/api/cron/check-deliveries", "/api/store/cron/check-deliveries"], async (req, res) => {
+  try {
+    const { default: handler } = await import("./cron/check-deliveries.js");
+    return handler(req, res);
+  } catch (err: any) {
+    console.error("[Cron check-deliveries] Handler error:", err);
+    return res.status(500).json({ error: err?.message || "Failed to execute check-deliveries cron" });
+  }
+});
 
 export default app;
