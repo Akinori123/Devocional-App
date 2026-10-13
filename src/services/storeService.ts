@@ -8,7 +8,8 @@ import {
   deleteDoc, 
   query, 
   orderBy, 
-  where 
+  where,
+  onSnapshot
 } from 'firebase/firestore';
 import { 
   ref, 
@@ -26,6 +27,24 @@ import {
   StoreDeliveryAddress, 
   StoreOrderStatus 
 } from '../types';
+
+/**
+ * Helper para obter cabeçalho de autenticação Bearer com o token JWT do Firebase Auth
+ */
+async function getStoreAuthHeader(): Promise<Record<string, string>> {
+  try {
+    const user = auth.currentUser;
+    if (user) {
+      const token = await user.getIdToken();
+      if (token) {
+        return { Authorization: `Bearer ${token}` };
+      }
+    }
+  } catch (err) {
+    console.warn('[storeService] Aviso ao recuperar token Firebase Auth:', err);
+  }
+  return {};
+}
 
 /**
  * 1. CATEGORIAS (store_categories)
@@ -422,10 +441,16 @@ export async function getUserStoreOrders(userId: string, userEmail?: string): Pr
   const cleanEmail = userEmail ? userEmail.trim().toLowerCase() : '';
   let rawOrders: StoreOrder[] = [];
 
-  // 1. Tentar buscar via API Server-side com query param userId e userEmail
+  // 1. Tentar buscar via API Server-side com query param userId e token Firebase Auth
   try {
+    const authHeaders = await getStoreAuthHeader();
     const url = `/api/store/orders?userId=${encodeURIComponent(cleanUserId)}${cleanEmail ? `&userEmail=${encodeURIComponent(cleanEmail)}` : ''}`;
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders
+      }
+    });
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.orders)) {
@@ -444,6 +469,12 @@ export async function getUserStoreOrders(userId: string, userEmail?: string): Pr
           paymentId: d.paymentId || undefined,
           deliveredAt: d.deliveredAt || undefined,
           autoDeliveredViaCron: d.autoDeliveredViaCron || false,
+          cancellationReason: d.cancellationReason || undefined,
+          disputeReason: d.disputeReason || undefined,
+          returnTrackingCode: d.returnTrackingCode || undefined,
+          returnInstructions: d.returnInstructions || undefined,
+          refundedAt: d.refundedAt || undefined,
+          notes: d.notes || undefined,
           createdAt: d.createdAt || '',
           updatedAt: d.updatedAt || ''
         }));
@@ -475,8 +506,15 @@ export async function getUserStoreOrders(userId: string, userEmail?: string): Pr
           trackingCode: d.trackingCode || '',
           deliveryAddress: d.deliveryAddress || undefined,
           paymentId: d.paymentId || undefined,
+          mpPaymentId: d.mpPaymentId || d.paymentId || undefined,
           deliveredAt: d.deliveredAt || undefined,
           autoDeliveredViaCron: d.autoDeliveredViaCron || false,
+          cancellationReason: d.cancellationReason || undefined,
+          disputeReason: d.disputeReason || undefined,
+          returnTrackingCode: d.returnTrackingCode || undefined,
+          returnInstructions: d.returnInstructions || undefined,
+          refundedAt: d.refundedAt || undefined,
+          notes: d.notes || undefined,
           createdAt: d.createdAt || '',
           updatedAt: d.updatedAt || ''
         });
@@ -530,26 +568,152 @@ export async function getUserStoreOrders(userId: string, userEmail?: string): Pr
 }
 
 /**
+ * Inscrição em Tempo Real (onSnapshot) para a tela "Meus Pedidos" do Perfil:
+ * Atualiza o status instantaneamente no cliente no mesmo segundo em que o webhook
+ * do Mercado Pago processar a compra para 'Preparando Envio'.
+ */
+export function subscribeUserStoreOrders(
+  userId: string,
+  userEmail: string | undefined,
+  onUpdate: (orders: StoreOrder[]) => void,
+  onError?: (err: any) => void
+): () => void {
+  const cleanUserId = (userId || '').trim();
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+
+  if (!cleanUserId) {
+    onUpdate([]);
+    return () => {};
+  }
+
+  // Consulta inicial via API como baseline de alta disponibilidade
+  getUserStoreOrders(cleanUserId, cleanEmail)
+    .then((initial) => {
+      if (initial.length > 0) {
+        onUpdate(initial);
+      }
+    })
+    .catch((err) => console.warn('[subscribeUserStoreOrders] Baseline API error:', err));
+
+  try {
+    const colRef = collection(db, 'store_orders');
+    const q = query(colRef, where('userId', '==', cleanUserId));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        const rawOrders: StoreOrder[] = [];
+        snap.forEach((docSnap) => {
+          const d = docSnap.data();
+          rawOrders.push({
+            orderId: docSnap.id,
+            userId: d.userId || '',
+            userEmail: d.userEmail || '',
+            userName: d.userName || '',
+            productId: d.productId || '',
+            productName: d.productName || '',
+            productImage: d.productImage || '',
+            totalPrice: Number(d.totalPrice) || 0,
+            status: (d.status || 'Aguardando Pagamento') as StoreOrderStatus,
+            trackingCode: d.trackingCode || '',
+            deliveryAddress: d.deliveryAddress || undefined,
+            paymentId: d.paymentId || undefined,
+            mpPaymentId: d.mpPaymentId || d.paymentId || undefined,
+            deliveredAt: d.deliveredAt || undefined,
+            autoDeliveredViaCron: d.autoDeliveredViaCron || false,
+            cancellationReason: d.cancellationReason || undefined,
+            disputeReason: d.disputeReason || undefined,
+            returnTrackingCode: d.returnTrackingCode || undefined,
+            returnInstructions: d.returnInstructions || undefined,
+            refundedAt: d.refundedAt || undefined,
+            notes: d.notes || undefined,
+            createdAt: d.createdAt || '',
+            updatedAt: d.updatedAt || ''
+          });
+        });
+
+        // Duplo filtro estrito e deduplicação inteligente em tempo real
+        const filtered = rawOrders.filter((o) => {
+          const matchesUid = o.userId === cleanUserId;
+          const matchesEmail = cleanEmail && o.userEmail && o.userEmail.toLowerCase() === cleanEmail;
+          return matchesUid || matchesEmail;
+        });
+
+        filtered.sort((a, b) => {
+          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return timeB - timeA;
+        });
+
+        const productPaidMap = new Set<string>();
+        filtered.forEach((o) => {
+          if (o.status && o.status !== 'Aguardando Pagamento') {
+            productPaidMap.add(o.productId || o.productName);
+          }
+        });
+
+        const finalOrders: StoreOrder[] = [];
+        const seenPendingProducts = new Set<string>();
+
+        filtered.forEach((o) => {
+          const isPaid = o.status && o.status !== 'Aguardando Pagamento';
+          const key = o.productId || o.productName;
+
+          if (isPaid) {
+            finalOrders.push(o);
+          } else if (!productPaidMap.has(key)) {
+            if (!seenPendingProducts.has(key)) {
+              seenPendingProducts.add(key);
+              finalOrders.push(o);
+            }
+          }
+        });
+
+        onUpdate(finalOrders);
+      },
+      (err) => {
+        console.warn('[storeService] onSnapshot error:', err);
+        if (onError) onError(err);
+      }
+    );
+
+    return unsubscribe;
+  } catch (err) {
+    console.warn('[storeService] Error setting up onSnapshot listener:', err);
+    return () => {};
+  }
+}
+
+/**
  * Consulta de Pedidos da Loja:
  * - Se fornecido userId: delega para getUserStoreOrders (isolamento estrito do usuário).
- * - Se chamado sem parâmetros: busca global para a Central Administrativa (Painel Admin).
+ * - Se chamado sem parâmetros: busca global para a Central Administrativa via GET /api/admin/store/orders.
  */
 export async function getStoreOrders(userId?: string): Promise<StoreOrder[]> {
   if (userId) {
     return getUserStoreOrders(userId);
   }
 
-  // 1. Tentar buscar via API Server-side (100% resiliente a regras, autenticação e índices)
+  // 1. Tentar buscar via API Server-side dedicada do Admin (/api/admin/store/orders)
   try {
-    const res = await fetch('/api/store/orders');
+    const authHeaders = await getStoreAuthHeader();
+    const res = await fetch('/api/admin/store/orders', {
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders
+      }
+    });
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.orders)) {
-        return data.orders;
+        return data.orders.map((o: any) => ({
+          ...o,
+          mpPaymentId: o.mpPaymentId || o.paymentId
+        }));
       }
     }
   } catch (apiErr) {
-    console.warn('[storeService] API /api/store/orders indisponível, usando fallback Firestore');
+    console.warn('[storeService] API /api/admin/store/orders indisponível, usando fallback Firestore');
   }
 
   // 2. Fallback via Firestore Client SDK (Somente se houver usuário autenticado administrador)
@@ -584,6 +748,7 @@ export async function getStoreOrders(userId?: string): Promise<StoreOrder[]> {
         trackingCode: d.trackingCode || '',
         deliveryAddress: d.deliveryAddress || undefined,
         paymentId: d.paymentId || undefined,
+        mpPaymentId: d.mpPaymentId || d.paymentId || undefined,
         deliveredAt: d.deliveredAt || undefined,
         autoDeliveredViaCron: d.autoDeliveredViaCron || false,
         createdAt: d.createdAt || '',
@@ -643,14 +808,19 @@ export async function getStoreOrders(userId?: string): Promise<StoreOrder[]> {
  */
 export async function createStoreCheckoutPreference(params: {
   productId: string;
+  quantity?: number;
   deliveryAddress: StoreDeliveryAddress;
   userId: string;
   userEmail: string;
   userName: string;
 }): Promise<{ init_point: string; orderId: string }> {
+  const authHeaders = await getStoreAuthHeader();
   const response = await fetch('/api/store/create-preference', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      ...authHeaders
+    },
     body: JSON.stringify(params)
   });
 
@@ -674,9 +844,13 @@ export async function verifyStoreOrderPaymentApi(params: {
   userEmail?: string;
 }): Promise<{ success: boolean; status?: string; message?: string; orderId?: string }> {
   try {
+    const authHeaders = await getStoreAuthHeader();
     const response = await fetch('/api/store/verify-payment', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...authHeaders
+      },
       body: JSON.stringify(params)
     });
 
@@ -700,11 +874,20 @@ export async function updateStoreOrderStatusApi(params: {
   userEmail?: string;
   totalPrice?: number;
   notes?: string;
+  cancellationReason?: string;
+  disputeReason?: string;
+  returnTrackingCode?: string;
+  returnInstructions?: string;
+  refundedAt?: string;
 }): Promise<any> {
   try {
+    const authHeaders = await getStoreAuthHeader();
     const response = await fetch('/api/store/orders/update-status', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...authHeaders
+      },
       body: JSON.stringify(params)
     });
 
@@ -740,6 +923,23 @@ export async function updateStoreOrderStatusApi(params: {
     }
     if (params.notes !== undefined) {
       updateData.notes = params.notes;
+    }
+    if (params.cancellationReason !== undefined) {
+      updateData.cancellationReason = params.cancellationReason;
+    }
+    if (params.disputeReason !== undefined) {
+      updateData.disputeReason = params.disputeReason;
+    }
+    if (params.returnTrackingCode !== undefined) {
+      updateData.returnTrackingCode = params.returnTrackingCode.trim().toUpperCase();
+    }
+    if (params.returnInstructions !== undefined) {
+      updateData.returnInstructions = params.returnInstructions;
+    }
+    if (params.refundedAt !== undefined) {
+      updateData.refundedAt = params.refundedAt;
+    } else if (params.status === 'Reembolsado') {
+      updateData.refundedAt = new Date().toISOString();
     }
     if (params.status === 'Enviado') {
       updateData.shippedAt = new Date().toISOString();
@@ -784,9 +984,13 @@ export async function triggerCheckDeliveriesCron(): Promise<{
 export async function deleteStoreOrder(orderId: string): Promise<{ success: boolean }> {
   // 1. Tentar via API Server-side
   try {
+    const authHeaders = await getStoreAuthHeader();
     const res = await fetch(`/api/store/orders/${orderId}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 
+        'Content-Type': 'application/json',
+        ...authHeaders
+      }
     });
     if (res.ok) {
       const data = await res.json();
@@ -815,9 +1019,13 @@ export async function deleteStoreOrder(orderId: string): Promise<{ success: bool
 export async function clearAllTestOrders(orderIds?: string[]): Promise<{ success: boolean; deletedCount: number }> {
   // 1. Tentar via API Server-side
   try {
+    const authHeaders = await getStoreAuthHeader();
     const res = await fetch('/api/store/orders/clear-test', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...authHeaders
+      },
       body: JSON.stringify({ orderIds, all: !orderIds || orderIds.length === 0 })
     });
     if (res.ok) {
@@ -865,9 +1073,13 @@ export async function clearAllTestOrders(orderIds?: string[]): Promise<{ success
  */
 export async function deduplicateStoreOrdersApi(): Promise<{ success: boolean; removedCount: number; message: string }> {
   try {
+    const authHeaders = await getStoreAuthHeader();
     const res = await fetch('/api/store/orders/deduplicate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 
+        'Content-Type': 'application/json',
+        ...authHeaders
+      }
     });
     const data = await res.json();
     return data;

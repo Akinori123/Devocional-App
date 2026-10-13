@@ -17,6 +17,7 @@ import {
   handleGetStoreCategories,
   handleGetStoreProducts,
   handleGetStoreOrders,
+  handleGetAdminStoreOrders,
   handleCreateStoreCategory,
   handleUpdateStoreCategory,
   handleDeleteStoreCategory,
@@ -1220,6 +1221,7 @@ app.delete("/api/store/products/:id", handleDeleteStoreProduct);
 app.post("/api/store/upload-image", handleUploadStoreImage);
 
 app.get("/api/store/orders", handleGetStoreOrders);
+app.get("/api/admin/store/orders", handleGetAdminStoreOrders);
 app.post("/api/store/create-preference", handleCreateStorePreference);
 app.post("/api/store/verify-payment", handleVerifyStoreOrderPayment);
 app.get("/api/store/verify-payment/:orderId", handleVerifyStoreOrderPayment);

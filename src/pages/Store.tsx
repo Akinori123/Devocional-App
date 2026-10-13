@@ -19,7 +19,10 @@ import {
   CheckCircle2,
   AlertTriangle,
   Lock,
-  Unlock
+  Unlock,
+  Plus,
+  Minus,
+  Zap
 } from 'lucide-react';
 import { 
   StoreCategory, 
@@ -55,6 +58,7 @@ export function Store({ onChangeTab }: StoreProps) {
   // Produto Selecionado para Detalhes
   const [selectedProduct, setSelectedProduct] = useState<StoreProduct | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [selectedQuantity, setSelectedQuantity] = useState<number>(1);
 
   // Modal de Checkout / Endereço de Entrega
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
@@ -273,12 +277,14 @@ export function Store({ onChangeTab }: StoreProps) {
   const handleOpenProductDetails = (product: StoreProduct) => {
     if (!product.isActive || product.stock <= 0) return;
     setSelectedProduct(product);
+    setSelectedQuantity(1);
     setCurrentImageIndex(0);
   };
 
   const handleStartCheckout = (product: StoreProduct) => {
     if (!product.isActive || product.stock <= 0) return;
     setSelectedProduct(product);
+    setSelectedQuantity(1);
     setFormAttempted(false);
     // Limpar estados de erro ao abrir novo checkout
     setPhoneError('');
@@ -293,6 +299,30 @@ export function Store({ onChangeTab }: StoreProps) {
     setCityError('');
     setStateError('');
     setCheckoutModalOpen(true);
+  };
+
+  const handleIncrementQuantity = () => {
+    if (!selectedProduct) return;
+    const maxStock = Number(selectedProduct.stock) || 999;
+    setSelectedQuantity(prev => (prev < maxStock ? prev + 1 : prev));
+  };
+
+  const handleDecrementQuantity = () => {
+    setSelectedQuantity(prev => (prev > 1 ? prev - 1 : 1));
+  };
+
+  const handleQuantityInputChange = (val: string) => {
+    if (!selectedProduct) return;
+    const parsed = parseInt(val, 10);
+    const maxStock = Number(selectedProduct.stock) || 999;
+    if (isNaN(parsed) || parsed < 1) {
+      setSelectedQuantity(1);
+    } else if (parsed > maxStock) {
+      setSelectedQuantity(maxStock);
+      toast.error(`Quantidade máxima disponível: ${maxStock} unidades`);
+    } else {
+      setSelectedQuantity(parsed);
+    }
   };
 
   const handleConfirmCheckout = async (e: React.FormEvent) => {
@@ -380,6 +410,7 @@ export function Store({ onChangeTab }: StoreProps) {
 
       const result = await createStoreCheckoutPreference({
         productId: selectedProduct.id,
+        quantity: selectedQuantity,
         deliveryAddress,
         userId: user?.uid || 'anonymous',
         userEmail: email.trim(),
@@ -715,6 +746,71 @@ export function Store({ onChangeTab }: StoreProps) {
                   <span className="text-xs text-gray-400">ou em até 12x no cartão</span>
                 </div>
 
+                {/* Badges de Formas de Pagamento Rápidas */}
+                <div className="mt-2.5 flex items-center gap-2 flex-wrap text-[11px]">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-semibold border border-emerald-500/20">
+                    <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>PIX • Aprovação Instantânea</span>
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 font-medium border border-gray-200/80 dark:border-slate-700">
+                    <CreditCard className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 shrink-0" />
+                    <span>Cartão em até 12x</span>
+                  </div>
+                </div>
+
+                {/* Seletor de Quantidade com Cálculo Dinâmico */}
+                <div className="mt-3.5 p-3 bg-gray-50 dark:bg-slate-800/60 rounded-2xl border border-gray-200/80 dark:border-slate-800 flex items-center justify-between gap-3">
+                  <div>
+                    <span className="block text-xs font-bold text-gray-800 dark:text-gray-200">
+                      Quantidade
+                    </span>
+                    <span className="text-[11px] text-gray-400">
+                      {selectedProduct.stock > 0 ? `${selectedProduct.stock} unidades disponíveis` : 'Estoque limitado'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDecrementQuantity}
+                      disabled={selectedQuantity <= 1}
+                      className="w-8 h-8 rounded-xl bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 flex items-center justify-center font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs"
+                      title="Diminuir quantidade"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={selectedProduct.stock || 999}
+                      value={selectedQuantity}
+                      onChange={(e) => handleQuantityInputChange(e.target.value)}
+                      className="w-12 text-center bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl py-1 text-xs font-black font-mono text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-yellow-500/30"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleIncrementQuantity}
+                      disabled={selectedProduct.stock ? selectedQuantity >= selectedProduct.stock : false}
+                      className="w-8 h-8 rounded-xl bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 flex items-center justify-center font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs"
+                      title="Aumentar quantidade"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Subtotal Dinâmico */}
+                {selectedQuantity > 1 && (
+                  <div className="mt-2 flex items-center justify-between px-3 py-2 bg-yellow-500/10 rounded-xl border border-yellow-500/30 text-xs">
+                    <span className="text-yellow-800 dark:text-yellow-300 font-bold">
+                      Subtotal ({selectedQuantity} un x {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedProduct.price)}):
+                    </span>
+                    <span className="font-black text-yellow-900 dark:text-yellow-200 text-sm font-mono">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedProduct.price * selectedQuantity)}
+                    </span>
+                  </div>
+                )}
+
                 {/* Gatilho de Escassez */}
                 {selectedProduct.stock > 0 && selectedProduct.stock <= 5 && (
                   <div className="mt-3 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50 p-2.5 rounded-xl flex items-center gap-2 text-xs font-bold">
@@ -733,29 +829,62 @@ export function Store({ onChangeTab }: StoreProps) {
                   </div>
                 </div>
 
-                {/* Benefícios */}
-                <div className="mt-4 pt-4 border-t border-gray-100 dark:border-slate-800 grid grid-cols-2 gap-2 text-[11px] text-gray-500 dark:text-gray-400">
-                  <div className="flex items-center gap-1.5">
-                    <Truck className="w-4 h-4 text-green-500" />
-                    <span>Envio para todo o Brasil</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-blue-500" />
-                    <span>Checkout Mercado Pago</span>
+                {/* Seção de Confiança e Segurança Marketplace */}
+                <div className="mt-4 pt-4 border-t border-gray-100 dark:border-slate-800">
+                  <div className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 space-y-3">
+                    {/* Selo de Compra Protegida */}
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 mt-0.5">
+                        <ShieldCheck className="w-4 h-4" />
+                      </div>
+                      <div className="text-xs">
+                        <div className="font-bold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+                          <span>Compra Protegida</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium">Mercado Pago</span>
+                        </div>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
+                          Ambiente seguro e Compra Protegida via Mercado Pago com garantia total de recebimento.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="h-px bg-gray-200/60 dark:bg-slate-700/60" />
+
+                    {/* Garantia & Envio Rastreado */}
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                        <Truck className="w-4 h-4" />
+                      </div>
+                      <div className="text-xs">
+                        <span className="font-bold text-gray-900 dark:text-gray-100">
+                          Garantia & Envio Rastreado
+                        </span>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
+                          Produto com garantia oficial e envio rastreado para todo o Brasil via Correios.
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Rodapé Fixo com Botão Comprar */}
-            <div className="p-4 bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 sticky bottom-0">
+            {/* Rodapé Fixo com Botão Comprar e Selo de Confiança */}
+            <div className="p-4 bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 sticky bottom-0 space-y-2">
               <button
                 onClick={() => setCheckoutModalOpen(true)}
                 className="w-full py-3.5 bg-yellow-500 hover:bg-yellow-600 text-white font-black text-sm rounded-2xl shadow-md shadow-yellow-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
               >
                 <ShoppingBag className="w-4 h-4" />
-                <span>Comprar Agora</span>
+                <span>
+                  Comprar {selectedQuantity > 1 ? `${selectedQuantity} unidades` : 'Agora'} • {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedProduct.price * selectedQuantity)}
+                </span>
               </button>
+
+              <div className="flex items-center justify-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 text-center">
+                <Lock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>Ambiente seguro e Compra Protegida via Mercado Pago</span>
+              </div>
             </div>
           </div>
         </div>
@@ -782,19 +911,57 @@ export function Store({ onChangeTab }: StoreProps) {
             </div>
 
             <form onSubmit={handleConfirmCheckout} className="p-5 space-y-4">
-              {/* Resumo do Produto */}
-              <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-slate-800/50 rounded-2xl border border-gray-100 dark:border-slate-800">
-                <div className="w-12 h-12 rounded-xl bg-gray-200 dark:bg-slate-700 overflow-hidden shrink-0">
-                  {selectedProduct.images?.[0] && (
-                    <img src={selectedProduct.images[0]} alt="" className="w-full h-full object-cover" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-xs text-gray-900 dark:text-white truncate">
-                    {selectedProduct.title}
+              {/* Resumo do Produto & Ajuste de Quantidade */}
+              <div className="p-3 bg-gray-50 dark:bg-slate-800/50 rounded-2xl border border-gray-100 dark:border-slate-800 space-y-2.5">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-gray-200 dark:bg-slate-700 overflow-hidden shrink-0">
+                    {selectedProduct.images?.[0] && (
+                      <img src={selectedProduct.images[0]} alt="" className="w-full h-full object-cover" />
+                    )}
                   </div>
-                  <div className="text-xs font-black text-yellow-600 dark:text-yellow-400 mt-0.5">
-                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedProduct.price)}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-xs text-gray-900 dark:text-white truncate">
+                      {selectedProduct.title}
+                    </div>
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedProduct.price)} por unidade
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-gray-200/60 dark:border-slate-700/60 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300">Quantidade:</span>
+                    <div className="flex items-center gap-1 bg-white dark:bg-slate-700 rounded-lg p-0.5 border border-gray-200 dark:border-slate-600">
+                      <button
+                        type="button"
+                        onClick={handleDecrementQuantity}
+                        disabled={selectedQuantity <= 1}
+                        className="w-6 h-6 rounded flex items-center justify-center text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-600 disabled:opacity-30 cursor-pointer"
+                        title="Diminuir"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className="w-6 text-center text-xs font-black font-mono text-gray-900 dark:text-white">
+                        {selectedQuantity}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleIncrementQuantity}
+                        disabled={selectedProduct.stock ? selectedQuantity >= selectedProduct.stock : false}
+                        className="w-6 h-6 rounded flex items-center justify-center text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-600 disabled:opacity-30 cursor-pointer"
+                        title="Aumentar"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-[10px] text-gray-400 block font-medium">Total ({selectedQuantity} un):</span>
+                    <span className="text-xs font-black text-yellow-600 dark:text-yellow-400">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedProduct.price * selectedQuantity)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1132,7 +1299,9 @@ export function Store({ onChangeTab }: StoreProps) {
                   ) : (
                     <>
                       <CreditCard className="w-4 h-4" />
-                      <span>Ir para Pagamento (Mercado Pago)</span>
+                      <span>
+                        Ir para Pagamento • {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedProduct.price * selectedQuantity)}
+                      </span>
                     </>
                   )}
                 </button>

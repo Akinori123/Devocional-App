@@ -26,7 +26,10 @@ import {
   Archive,
   Inbox,
   History,
-  Save
+  Save,
+  RotateCcw,
+  AlertTriangle,
+  DollarSign
 } from 'lucide-react';
 import { 
   StoreCategory, 
@@ -121,6 +124,17 @@ export function StoreAdminTab() {
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [verifyingOrderId, setVerifyingOrderId] = useState<string | null>(null);
   const [isDeduplicating, setIsDeduplicating] = useState(false);
+
+  // Modal de Aprovação de Devolução (Logística Reversa / RMA)
+  const [reverseModalOrder, setReverseModalOrder] = useState<StoreOrder | null>(null);
+  const [reverseCodeInput, setReverseCodeInput] = useState<string>('');
+  const [reverseInstructionsInput, setReverseInstructionsInput] = useState<string>('Embalar na caixa original com nota fiscal e postar em qualquer agência dos Correios.');
+  const [isApprovingReverse, setIsApprovingReverse] = useState(false);
+
+  // Modal de Confirmação de Recebimento Físico & Reembolso
+  const [refundModalOrder, setRefundModalOrder] = useState<StoreOrder | null>(null);
+  const [isConfirmingRefund, setIsConfirmingRefund] = useState(false);
+
   const [editOrderForm, setEditOrderForm] = useState<{
     status: StoreOrderStatus;
     trackingCode: string;
@@ -136,8 +150,12 @@ export function StoreAdminTab() {
     phone: string;
     totalPrice: number;
     notes: string;
+    cancellationReason: string;
+    disputeReason: string;
+    returnTrackingCode: string;
+    returnInstructions: string;
   }>({
-    status: 'Aguardando Pagamento',
+    status: 'Preparando Envio',
     trackingCode: '',
     userName: '',
     userEmail: '',
@@ -150,7 +168,11 @@ export function StoreAdminTab() {
     cep: '',
     phone: '',
     totalPrice: 0,
-    notes: ''
+    notes: '',
+    cancellationReason: '',
+    disputeReason: '',
+    returnTrackingCode: '',
+    returnInstructions: ''
   });
 
   useEffect(() => {
@@ -420,14 +442,26 @@ export function StoreAdminTab() {
   };
 
   // --- Handlers de Pedidos ---
-  const handleUpdateOrderStatus = async (orderId: string, newStatus: StoreOrderStatus) => {
+  const handleUpdateOrderStatus = async (
+    orderId: string, 
+    newStatus: StoreOrderStatus,
+    extraData?: {
+      returnTrackingCode?: string;
+      returnInstructions?: string;
+      refundedAt?: string;
+      cancellationReason?: string;
+      disputeReason?: string;
+      notes?: string;
+    }
+  ) => {
     setUpdatingOrderId(orderId);
     try {
       const targetOrder = orders.find(o => o.orderId === orderId);
       const res = await updateStoreOrderStatusApi({
         orderId,
         status: newStatus,
-        trackingCode: targetOrder?.trackingCode
+        trackingCode: targetOrder?.trackingCode,
+        ...extraData
       });
 
       if (res.notified) {
@@ -438,6 +472,117 @@ export function StoreAdminTab() {
       loadOrders();
     } catch (err: any) {
       toast.error(err?.message || 'Erro ao atualizar status do pedido.');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleApproveReverse = async () => {
+    if (!reverseModalOrder) return;
+    if (!reverseCodeInput.trim()) {
+      toast.error('Por favor, informe o Código de Postagem Reversa dos Correios.');
+      return;
+    }
+    setIsApprovingReverse(true);
+    try {
+      await updateStoreOrderStatusApi({
+        orderId: reverseModalOrder.orderId,
+        status: 'Devolução Aprovada',
+        returnTrackingCode: reverseCodeInput.trim().toUpperCase(),
+        returnInstructions: reverseInstructionsInput.trim()
+      });
+      toast.success('Devolução aprovada! Instruções de logística reversa salvas.');
+      setReverseModalOrder(null);
+      setReverseCodeInput('');
+      loadOrders();
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao aprovar devolução.');
+    } finally {
+      setIsApprovingReverse(false);
+    }
+  };
+
+  const handleConfirmRefund = async () => {
+    if (!refundModalOrder) return;
+    setIsConfirmingRefund(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const res = await updateStoreOrderStatusApi({
+        orderId: refundModalOrder.orderId,
+        status: 'Reembolsado',
+        refundedAt: nowIso
+      });
+
+      if (res?.mpRefundSuccess) {
+        toast.success(`Recebimento confirmado e estorno de R$ ${refundModalOrder.totalPrice.toFixed(2)} efetuado automaticamente no Mercado Pago! 💰`);
+      } else if (res?.mpRefundError) {
+        toast.info(`Pedido atualizado para Reembolsado, mas houve aviso na API do MP: ${res.mpRefundError}`);
+      } else {
+        toast.success('Recebimento físico confirmado e pedido marcado como Reembolsado! 💰');
+      }
+
+      setRefundModalOrder(null);
+      loadOrders();
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao processar reembolso.');
+    } finally {
+      setIsConfirmingRefund(false);
+    }
+  };
+
+  const handleApproveCancellation = async (order: StoreOrder) => {
+    setUpdatingOrderId(order.orderId);
+    try {
+      const nowIso = new Date().toISOString();
+      const res = await updateStoreOrderStatusApi({
+        orderId: order.orderId,
+        status: 'Reembolsado',
+        refundedAt: nowIso
+      });
+
+      if (res?.mpRefundSuccess) {
+        toast.success(`Cancelamento aprovado e valor de R$ ${order.totalPrice.toFixed(2)} estornado com sucesso no Mercado Pago! 💰`);
+      } else if (res?.mpRefundError) {
+        toast.info(`Cancelamento salvo, mas verifique o Mercado Pago: ${res.mpRefundError}`);
+      } else {
+        toast.success(`Cancelamento aprovado e pedido #${order.orderId} marcado como Reembolsado! 💰`);
+      }
+
+      loadOrders();
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao aprovar cancelamento.');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleRejectCancellation = async (order: StoreOrder) => {
+    setUpdatingOrderId(order.orderId);
+    try {
+      await updateStoreOrderStatusApi({
+        orderId: order.orderId,
+        status: 'Preparando Envio'
+      });
+      toast.success(`Solicitação de cancelamento recusada. Pedido retornou para 'Preparando Envio'.`);
+      loadOrders();
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao recusar cancelamento.');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleRejectReturn = async (order: StoreOrder) => {
+    setUpdatingOrderId(order.orderId);
+    try {
+      await updateStoreOrderStatusApi({
+        orderId: order.orderId,
+        status: 'Entregue'
+      });
+      toast.success(`Inquérito de devolução indeferido. Pedido mantido como 'Entregue'.`);
+      loadOrders();
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao indeferir inquérito.');
     } finally {
       setUpdatingOrderId(null);
     }
@@ -539,7 +684,7 @@ export function StoreAdminTab() {
   const handleOpenEditOrder = (order: StoreOrder) => {
     setOrderToEdit(order);
     setEditOrderForm({
-      status: order.status || 'Aguardando Pagamento',
+      status: order.status || 'Preparando Envio',
       trackingCode: order.trackingCode || '',
       userName: order.userName || '',
       userEmail: order.userEmail || '',
@@ -552,7 +697,11 @@ export function StoreAdminTab() {
       cep: order.deliveryAddress?.cep || '',
       phone: order.deliveryAddress?.phone || '',
       totalPrice: order.totalPrice || 0,
-      notes: (order as any).notes || ''
+      notes: (order as any).notes || '',
+      cancellationReason: order.cancellationReason || '',
+      disputeReason: order.disputeReason || '',
+      returnTrackingCode: order.returnTrackingCode || '',
+      returnInstructions: order.returnInstructions || ''
     });
   };
 
@@ -641,26 +790,84 @@ export function StoreAdminTab() {
     return matchesSearch;
   });
 
-  const activeOrdersCount = orders.filter(o => o.status !== 'Entregue').length;
-  const historyOrdersCount = orders.filter(o => o.status === 'Entregue').length;
+  // Categorização de status (Separação estrita de pedidos pagos vs abandonados vs histórico)
+  const isPaidActive = (s: string) => ['Preparando Envio', 'Enviado', 'Cancelamento Solicitado', 'Em Análise (Inquérito)', 'Devolução Aprovada'].includes(s);
+  const isHistory = (s: string) => ['Entregue', 'Cancelado', 'Reembolsado'].includes(s);
+  const isPending = (s: string) => s === 'Aguardando Pagamento';
+
+  const paidOrdersCount = orders.filter(o => isPaidActive(o.status)).length;
+  const pendingOrdersCount = orders.filter(o => isPending(o.status)).length;
+  const historyOrdersCount = orders.filter(o => isHistory(o.status)).length;
+  const rmaOrdersCount = orders.filter(o => ['Cancelamento Solicitado', 'Em Análise (Inquérito)', 'Devolução Aprovada'].includes(o.status)).length;
+  const activeOrdersCount = paidOrdersCount;
+
+  // Função auxiliar para obter o código curto de 6 caracteres do PED
+  const getOrderPedCode = (orderId: string): string => {
+    if (!orderId) return '';
+    const digits = orderId.replace(/\D/g, '');
+    return (digits.slice(-6) || orderId.slice(-6)).toUpperCase();
+  };
 
   const filteredOrders = orders.filter(o => {
-    const matchesSearch = 
-      o.orderId.toLowerCase().includes(orderSearch.toLowerCase()) ||
-      o.productName.toLowerCase().includes(orderSearch.toLowerCase()) ||
-      o.userEmail.toLowerCase().includes(orderSearch.toLowerCase()) ||
-      o.userName.toLowerCase().includes(orderSearch.toLowerCase()) ||
-      (o.trackingCode && o.trackingCode.toLowerCase().includes(orderSearch.toLowerCase()));
+    const rawSearch = orderSearch.trim().toLowerCase();
     
-    if (!matchesSearch) return false;
+    if (rawSearch) {
+      const cleanSearch = rawSearch.startsWith('#') ? rawSearch.slice(1).trim() : rawSearch;
+
+      const pedCode = getOrderPedCode(o.orderId).toLowerCase(); // ex: '245174'
+      const pedTag = `ped-${pedCode}`; // ex: 'ped-245174'
+      const pedTagHash = `#${pedTag}`; // ex: '#ped-245174'
+      const pedTagNoDash = `ped${pedCode}`; // ex: 'ped245174'
+
+      const orderIdLower = (o.orderId || '').toLowerCase(); // ex: 'ord_1799245174'
+      const orderIdHash = `#${orderIdLower}`; // ex: '#ord_1799245174'
+      const orderIdDigits = o.orderId.replace(/\D/g, ''); // ex: '1799245174'
+
+      const matchesOrderIdOrPed =
+        pedCode.includes(cleanSearch) ||
+        pedTag.includes(rawSearch) ||
+        pedTag.includes(cleanSearch) ||
+        pedTagHash.includes(rawSearch) ||
+        pedTagNoDash.includes(cleanSearch.replace(/[-_ ]/g, '')) ||
+        orderIdLower.includes(rawSearch) ||
+        orderIdLower.includes(cleanSearch) ||
+        orderIdHash.includes(rawSearch) ||
+        (orderIdDigits.length > 0 && orderIdDigits.includes(cleanSearch));
+
+      const matchesSearch = 
+        matchesOrderIdOrPed ||
+        (o.productName && o.productName.toLowerCase().includes(rawSearch)) ||
+        (o.userEmail && o.userEmail.toLowerCase().includes(rawSearch)) ||
+        (o.userName && o.userName.toLowerCase().includes(rawSearch)) ||
+        (o.mpPaymentId && String(o.mpPaymentId).toLowerCase().includes(rawSearch)) ||
+        (o.paymentId && String(o.paymentId).toLowerCase().includes(rawSearch)) ||
+        (o.trackingCode && o.trackingCode.toLowerCase().includes(rawSearch)) ||
+        (o.returnTrackingCode && o.returnTrackingCode.toLowerCase().includes(rawSearch)) ||
+        (o.cancellationReason && o.cancellationReason.toLowerCase().includes(rawSearch));
+      
+      if (!matchesSearch) return false;
+    }
 
     if (orderMainTab === 'active') {
-      if (o.status === 'Entregue') return false;
-      if (orderStatusFilter === 'all') return true;
+      if (orderStatusFilter === 'all') {
+        // Visão padrão obrigatória: Apenas pedidos Pagos (oculta pedidos Aguardando Pagamento / Abandonados)
+        return isPaidActive(o.status);
+      }
+      if (orderStatusFilter === 'pending') {
+        // Filtro dedicado exclusivo para pedidos não pagos / abandonados
+        return isPending(o.status);
+      }
+      if (orderStatusFilter === 'rma') {
+        // Disputas, RMA e Devoluções em análise
+        return ['Cancelamento Solicitado', 'Em Análise (Inquérito)', 'Devolução Aprovada'].includes(o.status);
+      }
       return o.status === orderStatusFilter;
     } else {
-      // Histórico / Concluídos (Entregue)
-      return o.status === 'Entregue';
+      // Histórico / Concluídos (Entregue, Cancelado, Reembolsado)
+      if (orderStatusFilter === 'all') {
+        return isHistory(o.status);
+      }
+      return o.status === orderStatusFilter;
     }
   });
 
@@ -1139,20 +1346,31 @@ export function StoreAdminTab() {
                 type="text"
                 value={orderSearch}
                 onChange={(e) => setOrderSearch(e.target.value)}
-                placeholder="Buscar por ID, cliente, rastreio..."
-                className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-xs text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500/30"
+                placeholder="Buscar por #PED, Nº do pedido (ord_), cliente, rastreio..."
+                className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl pl-9 pr-9 py-2.5 text-xs text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500/30"
               />
+              {orderSearch && (
+                <button
+                  type="button"
+                  onClick={() => setOrderSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg transition-colors cursor-pointer"
+                  title="Limpar pesquisa"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
-            {orderMainTab === 'active' && (
+            {orderMainTab === 'active' ? (
               <div 
                 {...orderFilterDragProps}
                 className="flex items-center gap-2 w-full overflow-x-auto whitespace-nowrap scrollbar-none py-1 touch-pan-x cursor-grab active:cursor-grabbing select-none"
               >
                 {[
-                  { id: 'all', label: 'Todos os Pagos / Ativos' },
-                  { id: 'Preparando Envio', label: 'Preparando Envio' },
-                  { id: 'Enviado', label: 'Enviado' }
+                  { id: 'all', label: 'Todos os Pagos', count: paidOrdersCount },
+                  { id: 'Preparando Envio', label: 'Preparando Envio', count: orders.filter(o => o.status === 'Preparando Envio').length },
+                  { id: 'Enviado', label: 'Enviado', count: orders.filter(o => o.status === 'Enviado').length },
+                  { id: 'rma', label: 'Em Análise / RMA', count: rmaOrdersCount, badgeColor: 'bg-indigo-500 text-white' }
                 ].map((statusOption) => (
                   <button
                     key={statusOption.id}
@@ -1161,13 +1379,57 @@ export function StoreAdminTab() {
                       setOrderStatusFilter(statusOption.id);
                     }}
                     className={cn(
-                      "text-xs px-3.5 py-1.5 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer shrink-0",
+                      "text-xs px-3.5 py-1.5 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer shrink-0 flex items-center gap-1.5",
                       orderStatusFilter === statusOption.id
                         ? "bg-yellow-500 text-white shadow-xs"
                         : "bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-700"
                     )}
                   >
-                    {statusOption.label}
+                    <span>{statusOption.label}</span>
+                    <span className={cn(
+                      "text-[10px] px-1.5 py-0.2 rounded-full font-bold",
+                      orderStatusFilter === statusOption.id
+                        ? "bg-white/25 text-white"
+                        : (statusOption.badgeColor || "bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-gray-300")
+                    )}>
+                      {statusOption.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div 
+                {...orderFilterDragProps}
+                className="flex items-center gap-2 w-full overflow-x-auto whitespace-nowrap scrollbar-none py-1 touch-pan-x cursor-grab active:cursor-grabbing select-none"
+              >
+                {[
+                  { id: 'all', label: 'Todos do Histórico', count: historyOrdersCount },
+                  { id: 'Entregue', label: 'Entregue', count: orders.filter(o => o.status === 'Entregue').length },
+                  { id: 'Reembolsado', label: 'Reembolsado', count: orders.filter(o => o.status === 'Reembolsado').length },
+                  { id: 'Cancelado', label: 'Cancelado', count: orders.filter(o => o.status === 'Cancelado').length }
+                ].map((statusOption) => (
+                  <button
+                    key={statusOption.id}
+                    onClick={() => {
+                      if (orderFilterHasDragged?.current) return;
+                      setOrderStatusFilter(statusOption.id);
+                    }}
+                    className={cn(
+                      "text-xs px-3.5 py-1.5 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer shrink-0 flex items-center gap-1.5",
+                      orderStatusFilter === statusOption.id
+                        ? "bg-emerald-600 text-white shadow-xs"
+                        : "bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-700"
+                    )}
+                  >
+                    <span>{statusOption.label}</span>
+                    <span className={cn(
+                      "text-[10px] px-1.5 py-0.2 rounded-full font-bold",
+                      orderStatusFilter === statusOption.id
+                        ? "bg-white/25 text-white"
+                        : "bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-gray-300"
+                    )}>
+                      {statusOption.count}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -1182,12 +1444,24 @@ export function StoreAdminTab() {
             <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-gray-100 dark:border-slate-800 text-center">
               <Package className="w-12 h-12 text-gray-300 dark:text-slate-700 mx-auto mb-3" />
               <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                {orderMainTab === 'active' ? 'Nenhum pedido ativo pendente de ação' : 'Nenhum pedido no histórico'}
+                {orderSearch 
+                  ? `Nenhum pedido encontrado para "${orderSearch}"` 
+                  : (orderMainTab === 'active' ? 'Nenhum pedido ativo pendente de ação' : 'Nenhum pedido no histórico')}
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                {orderMainTab === 'active' 
-                  ? 'Todos os pedidos em andamento foram processados ou entregues.' 
-                  : 'Os pedidos marcados como Entregue serão mantidos arquivados aqui.'}
+                {orderSearch ? (
+                  <button
+                    type="button"
+                    onClick={() => setOrderSearch('')}
+                    className="text-yellow-600 dark:text-yellow-400 hover:underline font-semibold cursor-pointer mt-1 inline-block"
+                  >
+                    Limpar pesquisa para ver todos os pedidos
+                  </button>
+                ) : (
+                  orderMainTab === 'active' 
+                    ? 'Todos os pedidos em andamento foram processados ou entregues.' 
+                    : 'Os pedidos marcados como Entregue, Reembolsado ou Cancelado serão mantidos arquivados aqui.'
+                )}
               </p>
             </div>
           ) : (
@@ -1222,33 +1496,47 @@ export function StoreAdminTab() {
 
                       {/* Informações da Venda */}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2 w-full">
-                          <span 
-                            className="font-mono text-xs font-black text-gray-700 dark:text-gray-300 truncate max-w-[120px] inline-block"
-                            title={`#${order.orderId}`}
-                          >
-                            #{order.orderId}
+                        {/* Topo: Tags de Identificação e Status em Container Flexbox com Espaçamento e Quebra Fluida */}
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-yellow-50 dark:bg-yellow-950/40 text-yellow-800 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900/40 text-xs font-bold font-mono shrink-0">
+                            <span>#PED-{(order.orderId.replace(/\D/g, '').slice(-6) || order.orderId.slice(-6)).toUpperCase()}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const pedCode = `#PED-${(order.orderId.replace(/\D/g, '').slice(-6) || order.orderId.slice(-6)).toUpperCase()}`;
+                                navigator.clipboard.writeText(pedCode);
+                                toast.success(`${pedCode} copiado!`);
+                              }}
+                              className="p-0.5 text-yellow-700 dark:text-yellow-400 hover:text-yellow-900 dark:hover:text-yellow-200 transition-colors cursor-pointer"
+                              title="Copiar Código do Pedido #PED-"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          <span className={cn(
+                            "text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 whitespace-nowrap",
+                            isPending && "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+                            isPreparing && "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 animate-pulse",
+                            isShipped && "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
+                            isDelivered && "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+                            order.status === 'Cancelamento Solicitado' && "bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300 border border-orange-200 dark:border-orange-900/50",
+                            order.status === 'Em Análise (Inquérito)' && "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-900/50",
+                            order.status === 'Devolução Aprovada' && "bg-teal-100 text-teal-800 dark:bg-teal-950/40 dark:text-teal-300 border border-teal-200 dark:border-teal-900/50",
+                            order.status === 'Reembolsado' && "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50",
+                            order.status === 'Cancelado' && "bg-gray-100 text-gray-700 dark:bg-slate-800 dark:text-gray-300"
+                          )}>
+                            {order.status}
                           </span>
-                          
-                          {/* Badges e Ações Rápidas (Editar e Excluir) */}
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className={cn(
-                              "text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 whitespace-nowrap",
-                              isPending && "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-                              isPreparing && "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 animate-pulse",
-                              isShipped && "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
-                              isDelivered && "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
-                            )}>
-                              {order.status}
+
+                          {isDelivered && order.autoDeliveredViaCron && (
+                            <span className="text-[10px] bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                              ✨ Auto
                             </span>
+                          )}
 
-                            {isDelivered && order.autoDeliveredViaCron && (
-                              <span className="text-[10px] bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                                ✨ Auto
-                              </span>
-                            )}
-
-                            {/* Botões de Ação Direta no Cabeçalho do Card */}
+                          {/* Botões de Ação Direta no Cabeçalho do Card */}
+                          <div className="flex items-center gap-1 ml-auto shrink-0">
                             <button
                               type="button"
                               onClick={() => handleOpenEditOrder(order)}
@@ -1261,20 +1549,72 @@ export function StoreAdminTab() {
                               type="button"
                               onClick={() => handleDeleteOrder(order)}
                               className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shrink-0"
-                              title="Excluir Pedido (com confirmação)"
+                              title="Excluir Pedido"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </div>
 
-                        <h4 className="font-bold text-gray-900 dark:text-white text-sm mt-1 truncate" title={order.productName}>
-                          {order.productName}
-                        </h4>
+                        {/* Exibição Fluida e Quebra Total do ID Longo (#ord_...) */}
+                        <div className="flex items-center gap-1.5 w-full mb-1.5">
+                          <span 
+                            className="text-xs text-slate-400 break-all w-full select-all font-mono leading-relaxed"
+                            title={`ID Completo: #${order.orderId}`}
+                          >
+                            #{order.orderId}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(order.orderId);
+                              toast.success('ID do Pedido copiado!');
+                            }}
+                            className="p-1 text-gray-400 hover:text-yellow-600 rounded transition-colors cursor-pointer shrink-0"
+                            title="Copiar ID Completo do Pedido"
+                          >
+                            <Copy className="w-3 h-3" />
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <h4 className="font-bold text-gray-900 dark:text-white text-sm truncate" title={order.productName}>
+                            {order.productName}
+                          </h4>
+                          {order.quantity && order.quantity > 1 ? (
+                            <span className="text-[11px] font-black text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/40 px-2 py-0.5 rounded-md border border-amber-300 dark:border-amber-800/60 shrink-0">
+                              {order.quantity}x unidades juntas
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-gray-400 shrink-0">
+                              (1 unidade)
+                            </span>
+                          )}
+                        </div>
 
                         <div className="text-xs text-gray-600 dark:text-gray-400 mt-1 break-words">
                           Cliente: <strong className="text-gray-900 dark:text-white">{order.userName}</strong> <span className="text-[11px] text-gray-500 break-all">({order.userEmail})</span>
                         </div>
+
+                        {(order.mpPaymentId || order.paymentId) && (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="text-[11px] font-mono font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-900/50 flex items-center gap-1">
+                              <span>Nº da Operação MP:</span>
+                              <strong className="select-all">{order.mpPaymentId || order.paymentId}</strong>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(order.mpPaymentId || order.paymentId!);
+                                toast.success('Nº da Operação do Mercado Pago copiado!');
+                              }}
+                              className="p-1 text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 cursor-pointer shrink-0"
+                              title="Copiar Nº da Operação MP"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
 
                         {order.deliveryAddress && (
                           <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 bg-gray-50 dark:bg-slate-800/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800 break-words leading-relaxed">
@@ -1284,9 +1624,16 @@ export function StoreAdminTab() {
                         )}
 
                         <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-1.5 border-t border-gray-100 dark:border-slate-800/60 text-xs">
-                          <span className="font-black text-gray-900 dark:text-white text-sm">
-                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(order.totalPrice)}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-gray-900 dark:text-white text-sm">
+                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(order.totalPrice)}
+                            </span>
+                            {order.quantity && order.quantity > 1 && (
+                              <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                ({new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(order.unitPrice || (order.totalPrice / order.quantity))} un.)
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[11px] text-gray-400">
                             {order.createdAt ? format(new Date(order.createdAt), 'dd/MM/yyyy HH:mm') : ''}
                           </span>
@@ -1309,7 +1656,7 @@ export function StoreAdminTab() {
                               type="text"
                               value={trackingInput}
                               onChange={(e) => setTrackingInput(e.target.value.toUpperCase())}
-                              placeholder="Ex: AA123456789BR"
+                              placeholder="Rastreio Único (ex: AA123456789BR)"
                               className="flex-1 min-w-0 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-900 dark:text-white uppercase focus:ring-2 focus:ring-yellow-500/30"
                               autoFocus
                             />
@@ -1334,6 +1681,11 @@ export function StoreAdminTab() {
                               <span className="text-[11px] font-mono font-bold text-gray-800 dark:text-gray-200 truncate" title={order.trackingCode}>
                                 {order.trackingCode}
                               </span>
+                              {order.quantity && order.quantity > 1 && (
+                                <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/50 px-1.5 py-0.5 rounded-md shrink-0 whitespace-nowrap">
+                                  Envio Unificado ({order.quantity} un juntas)
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                               <button
@@ -1372,7 +1724,7 @@ export function StoreAdminTab() {
                             className="w-full bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/30 font-bold px-3 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 border border-purple-200 dark:border-purple-800 transition-colors cursor-pointer"
                           >
                             <Truck className="w-3.5 h-3.5" />
-                            <span>Informar Rastreio</span>
+                            <span>Informar Rastreio Único {order.quantity && order.quantity > 1 ? `(${order.quantity} un juntas)` : ''}</span>
                           </button>
                         )}
                       </div>
@@ -1400,6 +1752,125 @@ export function StoreAdminTab() {
                         </button>
                       )}
 
+                      {/* Blocos de Ação e Auditoria para Disputas, RMA e Reembolso */}
+                      {order.status === 'Cancelamento Solicitado' && (
+                        <div className="bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900/50 rounded-xl p-3 space-y-2">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-orange-900 dark:text-orange-200">
+                            <AlertCircle className="w-4 h-4 text-orange-600 shrink-0" />
+                            <span>Cancelamento Solicitado pelo Cliente</span>
+                          </div>
+                          {order.cancellationReason && (
+                            <p className="text-[11px] text-orange-950 dark:text-orange-200 bg-orange-100/70 dark:bg-orange-900/30 p-2 rounded-lg">
+                              <strong>Motivo:</strong> {order.cancellationReason}
+                            </p>
+                          )}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                            <button
+                              type="button"
+                              disabled={updatingOrderId === order.orderId}
+                              onClick={() => handleApproveCancellation(order)}
+                              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              {updatingOrderId === order.orderId ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  <span>Estornando no MP...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <DollarSign className="w-3.5 h-3.5" />
+                                  <span>Aprovar & Reembolsar (MP)</span>
+                                </>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={updatingOrderId === order.orderId}
+                              onClick={() => handleRejectCancellation(order)}
+                              className="w-full bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              <span>Recusar Cancelamento</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {order.status === 'Em Análise (Inquérito)' && (
+                        <div className="bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/50 rounded-xl p-3 space-y-2">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                            <AlertTriangle className="w-4 h-4 text-indigo-600 shrink-0" />
+                            <span>Disputa Aberta • Solicitação de Devolução</span>
+                          </div>
+                          {order.disputeReason && (
+                            <p className="text-[11px] text-indigo-950 dark:text-indigo-200 bg-indigo-100/70 dark:bg-indigo-900/30 p-2 rounded-lg">
+                              <strong>Motivo da Devolução:</strong> {order.disputeReason}
+                            </p>
+                          )}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                            <button
+                              type="button"
+                              disabled={updatingOrderId === order.orderId}
+                              onClick={() => {
+                                setReverseModalOrder(order);
+                                setReverseCodeInput(order.returnTrackingCode || '');
+                                setReverseInstructionsInput(order.returnInstructions || 'Embalar na caixa original com nota fiscal e postar em qualquer agência dos Correios.');
+                              }}
+                              className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Aprovar Devolução (RMA)</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={updatingOrderId === order.orderId}
+                              onClick={() => handleRejectReturn(order)}
+                              className="w-full bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              <span>Indeferir Inquérito</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {order.status === 'Devolução Aprovada' && (
+                        <div className="bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900/50 rounded-xl p-3 space-y-2">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-teal-900 dark:text-teal-200">
+                            <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
+                            <span>Devolução Aprovada • Aguardando Retorno Físico</span>
+                          </div>
+                          {order.returnTrackingCode && (
+                            <div className="text-[11px] text-teal-950 dark:text-teal-200 bg-teal-100/70 dark:bg-teal-900/30 p-2 rounded-lg">
+                              <strong>Código Reverso:</strong> <span className="font-mono font-bold">{order.returnTrackingCode}</span>
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            disabled={updatingOrderId === order.orderId}
+                            onClick={() => setRefundModalOrder(order)}
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            <span>Confirmar Recebimento e Reembolsar</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {order.status === 'Reembolsado' && (
+                        <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl p-2.5 text-xs flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-bold">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>Reembolso Concluído {order.refundedAt ? `(${format(new Date(order.refundedAt), 'dd/MM/yyyy HH:mm')})` : ''}</span>
+                        </div>
+                      )}
+
+                      {order.status === 'Cancelado' && (
+                        <div className="bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-2.5 text-xs flex items-center gap-2 text-gray-700 dark:text-gray-300 font-bold">
+                          <X className="w-4 h-4 text-gray-500 shrink-0" />
+                          <span>Cancelado {order.cancellationReason ? `• ${order.cancellationReason}` : ''}</span>
+                        </div>
+                      )}
+
                       {/* Dropdown de Troca de Status e Botões de Ação (Editar e Excluir) */}
                       <div className="w-full flex items-center justify-between gap-2 bg-gray-50/70 dark:bg-slate-800/40 p-2 rounded-xl border border-gray-100 dark:border-slate-800/80">
                         <div className="flex items-center gap-1.5 flex-1 min-w-0">
@@ -1410,10 +1881,17 @@ export function StoreAdminTab() {
                             onChange={(e) => handleUpdateOrderStatus(order.orderId, e.target.value as StoreOrderStatus)}
                             className="flex-1 min-w-0 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-xs font-bold px-2 py-1 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-yellow-500/30 cursor-pointer"
                           >
-                            <option value="Aguardando Pagamento">Aguardando Pagamento</option>
+                            {order.status === 'Aguardando Pagamento' && (
+                              <option value="Aguardando Pagamento">Aguardando Pagamento (Legado)</option>
+                            )}
                             <option value="Preparando Envio">Preparando Envio</option>
                             <option value="Enviado">Enviado</option>
                             <option value="Entregue">Entregue</option>
+                            <option value="Cancelamento Solicitado">Cancelamento Solicitado</option>
+                            <option value="Em Análise (Inquérito)">Em Análise (Inquérito)</option>
+                            <option value="Devolução Aprovada">Devolução Aprovada</option>
+                            <option value="Reembolsado">Reembolsado</option>
+                            <option value="Cancelado">Cancelado</option>
                           </select>
                         </div>
 
@@ -2035,10 +2513,17 @@ export function StoreAdminTab() {
                     onChange={(e) => setEditOrderForm(prev => ({ ...prev, status: e.target.value as StoreOrderStatus }))}
                     className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500/30 cursor-pointer"
                   >
-                    <option value="Aguardando Pagamento">Aguardando Pagamento</option>
+                    {editOrderForm.status === 'Aguardando Pagamento' && (
+                      <option value="Aguardando Pagamento">Aguardando Pagamento (Legado)</option>
+                    )}
                     <option value="Preparando Envio">Preparando Envio</option>
                     <option value="Enviado">Enviado</option>
                     <option value="Entregue">Entregue</option>
+                    <option value="Cancelamento Solicitado">Cancelamento Solicitado</option>
+                    <option value="Em Análise (Inquérito)">Em Análise (Inquérito)</option>
+                    <option value="Devolução Aprovada">Devolução Aprovada</option>
+                    <option value="Reembolsado">Reembolsado</option>
+                    <option value="Cancelado">Cancelado</option>
                   </select>
                 </div>
 
@@ -2232,6 +2717,146 @@ export function StoreAdminTab() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ========================================================
+          MODAL: APROVAR DEVOLUÇÃO (LOGÍSTICA REVERSA / RMA)
+          ======================================================== */}
+      {reverseModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl border border-gray-200 dark:border-slate-800 p-5 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                  <RotateCcw className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 dark:text-white text-sm">
+                    Aprovar Devolução • Logística Reversa
+                  </h3>
+                  <p className="text-[11px] text-gray-500">
+                    Pedido #{reverseModalOrder.orderId}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setReverseModalOrder(null)}
+                className="text-gray-400 hover:text-gray-600 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Código de Postagem Reversa (Correios)
+                </label>
+                <input
+                  type="text"
+                  value={reverseCodeInput}
+                  onChange={(e) => setReverseCodeInput(e.target.value.toUpperCase())}
+                  placeholder="Ex: PAC Reverso 987654321BR"
+                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-mono font-bold text-gray-900 dark:text-white uppercase focus:ring-2 focus:ring-purple-500/30"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">Este código será exibido no app do cliente para postagem gratuita.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Instruções de Postagem para o Cliente
+                </label>
+                <textarea
+                  value={reverseInstructionsInput}
+                  onChange={(e) => setReverseInstructionsInput(e.target.value)}
+                  rows={3}
+                  placeholder="Orientações de embalagem e agências..."
+                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500/30 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setReverseModalOrder(null)}
+                disabled={isApprovingReverse}
+                className="flex-1 py-2 rounded-xl border border-gray-200 dark:border-slate-700 font-bold text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleApproveReverse}
+                disabled={isApprovingReverse}
+                className="flex-1 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 font-bold text-xs text-white shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isApprovingReverse ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                <span>Aprovar Devolução</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          MODAL: CONFIRMAR RECEBIMENTO FÍSICO E REEMBOLSAR
+          ======================================================== */}
+      {refundModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl border border-gray-200 dark:border-slate-800 p-5 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 dark:text-white text-sm">
+                    Confirmar Recebimento e Reembolsar
+                  </h3>
+                  <p className="text-[11px] text-gray-500">
+                    Pedido #{refundModalOrder.orderId}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setRefundModalOrder(null)}
+                className="text-gray-400 hover:text-gray-600 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-2xl p-3.5 space-y-1.5 text-xs text-amber-900 dark:text-amber-200">
+              <p className="font-bold">Atestado de Conferência Física (RMA):</p>
+              <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                Você confirma que o produto devolvido pelo cliente <strong>{refundModalOrder.userName}</strong> foi recebido fisicamente na central de distribuição e inspecionado com sucesso?
+              </p>
+              <div className="pt-1 font-black text-sm text-gray-900 dark:text-white">
+                Valor a ser reembolsado: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(refundModalOrder.totalPrice)}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setRefundModalOrder(null)}
+                disabled={isConfirmingRefund}
+                className="flex-1 py-2 rounded-xl border border-gray-200 dark:border-slate-700 font-bold text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRefund}
+                disabled={isConfirmingRefund}
+                className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-bold text-xs text-white shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isConfirmingRefund ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                <span>Confirmar e Reembolsar</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

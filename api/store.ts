@@ -1,9 +1,56 @@
 import type { Request, Response } from 'express';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 import { getApps } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import nodemailer from 'nodemailer';
+
+const DEFAULT_ADMIN_EMAILS = [
+  'dofekrafael@gmail.com',
+  'sjhonatan916@gmail.com',
+  'floresceremadoracao@gmail.com',
+  'contatoday@gmail.com'
+];
+
+/**
+ * Helper de Autenticação Server-Side para o Módulo de E-commerce:
+ * Extrai e valida o token Bearer do Firebase Auth, garantindo isolamento total entre usuários.
+ */
+async function getAuthenticatedUser(req: Request): Promise<{ uid: string; email?: string; isAdmin: boolean } | null> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  const token = authHeader.split('Bearer ')[1]?.trim();
+  if (!token) return null;
+
+  try {
+    const auth = getAuth();
+    const decoded = await auth.verifyIdToken(token);
+    const email = (decoded.email || '').toLowerCase().trim();
+    let isAdmin = decoded.admin === true || (decoded as any).isAdmin === true || DEFAULT_ADMIN_EMAILS.includes(email);
+
+    if (!isAdmin && decoded.uid) {
+      try {
+        const firestore = getFirestore();
+        const userDoc = await firestore.collection('users').doc(decoded.uid).get();
+        if (userDoc.exists && userDoc.data()?.isAdmin === true) {
+          isAdmin = true;
+        }
+      } catch {}
+    }
+
+    return {
+      uid: decoded.uid,
+      email,
+      isAdmin
+    };
+  } catch (err) {
+    console.warn('[Store Auth] Erro na validação do token Firebase Auth:', err);
+    return null;
+  }
+}
 
 function createStoreMailTransporter() {
   const user = process.env.GMAIL_USER || process.env.SMTP_USER;
@@ -79,111 +126,152 @@ export async function handleGetStoreProducts(req: Request, res: Response) {
 }
 
 /**
- * 0.2 Buscar Pedidos da Loja (API Segura Server-Side)
+ * 0.2 Buscar Pedidos da Loja para o Perfil do Usuário
+ * OBRIGATORIAMENTE filtra por .where('userId', '==', effectiveUid) para qualquer usuário,
+ * garantindo que a aba Perfil exiba estritamente as compras do UID logado.
  */
 export async function handleGetStoreOrders(req: Request, res: Response) {
   try {
+    const authUser = await getAuthenticatedUser(req);
     const rawUserId = req.query.userId as string | undefined;
-    const rawUserEmail = req.query.userEmail as string | undefined;
-    const includeUnpaid = req.query.includeUnpaid === 'true';
-    const userId = rawUserId && rawUserId !== 'undefined' && rawUserId !== 'null' && rawUserId.trim() !== '' 
+
+    const paramUserId = rawUserId && rawUserId !== 'undefined' && rawUserId !== 'null' && rawUserId.trim() !== '' 
       ? rawUserId.trim() 
       : undefined;
-    const userEmail = rawUserEmail && rawUserEmail !== 'undefined' && rawUserEmail !== 'null' && rawUserEmail.trim() !== ''
-      ? rawUserEmail.trim().toLowerCase()
-      : undefined;
+
+    const effectiveUid = authUser?.uid || paramUserId;
+
+    // Se não há identificador de usuário ou se a requisição não foi autenticada
+    if (!effectiveUid) {
+      return res.status(401).json({ error: 'Não autorizado. Token de autenticação ou identificador de usuário obrigatório.' });
+    }
+
+    // Segurança: se o usuário está autenticado e não é admin, garante que ele só acesse seu próprio UID
+    if (authUser && !authUser.isAdmin && paramUserId && paramUserId !== authUser.uid) {
+      return res.status(403).json({ error: 'Acesso negado. Você só pode visualizar seus próprios pedidos.' });
+    }
 
     const firestore = getFirestore();
-    let snap: FirebaseFirestore.QuerySnapshot;
+
+    // Consulta estrita ao Firestore indexada e filtrada obrigatoriamente por userId
+    const snap = await firestore
+      .collection('store_orders')
+      .where('userId', '==', effectiveUid)
+      .get();
+
+    const userOrdersRaw: any[] = [];
+    snap.forEach((doc) => {
+      const data = doc.data();
+      userOrdersRaw.push({ orderId: doc.id, ...data });
+    });
+
+    // Deduplicação inteligente para o perfil: se o usuário possui um pedido pago para o produto,
+    // descarta tentativas que ficaram como "Aguardando Pagamento"
+    const productPaidMap = new Set<string>();
+    userOrdersRaw.forEach(o => {
+      if (o.status && o.status !== 'Aguardando Pagamento' && o.status !== 'Cancelado') {
+        productPaidMap.add(o.productId || o.productName);
+      }
+    });
+
     const orders: any[] = [];
+    const seenPendingProducts = new Set<string>();
 
-    if (userId || userEmail) {
-      // Query por userId e/ou userEmail para a tela Meus Pedidos no Perfil do usuário
-      snap = await firestore.collection('store_orders').get();
-      const userOrdersRaw: any[] = [];
-      snap.forEach((doc) => {
-        const data = doc.data();
-        const matchesUid = userId && data.userId === userId;
-        const matchesEmail = userEmail && data.userEmail && String(data.userEmail).trim().toLowerCase() === userEmail;
-        if (matchesUid || matchesEmail) {
-          userOrdersRaw.push({ orderId: doc.id, ...data });
-        }
-      });
+    userOrdersRaw.forEach(o => {
+      // Pedidos históricos (Cancelado, Reembolsado, Entregue) ou em andamento pagos são preservados
+      const isPaidOrClosed = o.status && o.status !== 'Aguardando Pagamento';
+      const key = o.productId || o.productName;
 
-      // Deduplicação inteligente para o perfil: se o usuário possui um pedido pago para o produto,
-      // descarta tentativas duplicadas que ficaram como "Aguardando Pagamento"
-      const productPaidMap = new Set<string>();
-      userOrdersRaw.forEach(o => {
-        if (o.status && o.status !== 'Aguardando Pagamento') {
-          productPaidMap.add(o.productId || o.productName);
-        }
-      });
-
-      userOrdersRaw.forEach(o => {
-        const isPaid = o.status && o.status !== 'Aguardando Pagamento';
-        const key = o.productId || o.productName;
-        // Se já está pago, inclui com certeza.
-        // Se ainda está pendente, só inclui se não houver um pedido já pago para o mesmo produto.
-        if (isPaid || !productPaidMap.has(key)) {
+      if (isPaidOrClosed) {
+        orders.push(o);
+      } else if (!productPaidMap.has(key)) {
+        if (!seenPendingProducts.has(key)) {
+          seenPendingProducts.add(key);
           orders.push(o);
         }
-      });
-    } else {
-      // Consulta do Painel Admin: Por padrão, exibe apenas pedidos com pagamento confirmado
-      // (Preparando Envio, Enviado, Entregue, etc.). Checkouts abandonados/não pagos não entram no painel.
-      snap = await firestore.collection('store_orders').get();
-      const rawAdminOrders: any[] = [];
-      snap.forEach((doc) => {
-        const data = doc.data();
-        const isUnpaid = data.status === 'Aguardando Pagamento';
-        if (!isUnpaid || includeUnpaid) {
-          rawAdminOrders.push({ orderId: doc.id, ...data });
-        }
-      });
+      }
+    });
 
-      // Deduplicação inteligente para o painel de administração:
-      // Se houver múltiplos registros com o mesmo paymentId ou tentativas repetidas do mesmo usuário/produto,
-      // preserva o registro mais completo (com rastreio ou mais recente).
-      const seenPaymentIds = new Set<string>();
-      const userProductMap = new Map<string, any>();
+    orders.sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
 
-      // Ordena previamente para priorizar os mais completos
-      rawAdminOrders.sort((a, b) => {
-        const hasTrackA = a.trackingCode ? 1 : 0;
-        const hasTrackB = b.trackingCode ? 1 : 0;
-        if (hasTrackA !== hasTrackB) return hasTrackB - hasTrackA;
-        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return timeB - timeA;
-      });
+    return res.json({ success: true, orders });
+  } catch (err: any) {
+    console.error('[API Store] Error fetching user orders:', err);
+    return res.status(500).json({ error: err?.message || 'Falha ao buscar pedidos do usuário' });
+  }
+}
 
-      for (const ord of rawAdminOrders) {
-        // Se possui paymentId e já foi visto, é duplicata exata de webhook/checkout
-        if (ord.paymentId && seenPaymentIds.has(String(ord.paymentId))) {
+/**
+ * 0.3 Buscar Pedidos da Loja para o Painel Administrativo (Gestão Global)
+ * Rota dedicada exclusiva para administradores visualizarem todas as vendas do sistema.
+ */
+export async function handleGetAdminStoreOrders(req: Request, res: Response) {
+  try {
+    const authUser = await getAuthenticatedUser(req);
+
+    // Se o usuário autenticado NÃO for administrador, bloqueia imediatamente
+    if (!authUser?.isAdmin) {
+      return res.status(403).json({ error: 'Acesso negado. Apenas administradores podem visualizar o painel global de pedidos.' });
+    }
+
+    const includeUnpaid = req.query.includeUnpaid === 'true';
+    const firestore = getFirestore();
+
+    const snap = await firestore.collection('store_orders').get();
+    const rawAdminOrders: any[] = [];
+    snap.forEach((doc) => {
+      const data = doc.data();
+      const isUnpaid = data.status === 'Aguardando Pagamento' || data.status === 'Cancelado';
+      if (!isUnpaid || includeUnpaid) {
+        rawAdminOrders.push({ orderId: doc.id, ...data });
+      }
+    });
+
+    // Deduplicação inteligente para o painel de administração:
+    const seenPaymentIds = new Set<string>();
+    const userProductMap = new Map<string, any>();
+    const orders: any[] = [];
+
+    // Ordena previamente para priorizar os mais completos
+    rawAdminOrders.sort((a, b) => {
+      const hasTrackA = a.trackingCode ? 1 : 0;
+      const hasTrackB = b.trackingCode ? 1 : 0;
+      if (hasTrackA !== hasTrackB) return hasTrackB - hasTrackA;
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
+
+    for (const ord of rawAdminOrders) {
+      const pId = ord.mpPaymentId || ord.paymentId;
+      // Se possui paymentId e já foi visto, é duplicata exata de webhook/checkout
+      if (pId && seenPaymentIds.has(String(pId))) {
+        continue;
+      }
+      if (pId) {
+        seenPaymentIds.add(String(pId));
+      }
+
+      const userKey = (ord.userId && ord.userId !== 'anonymous') ? ord.userId : (ord.userEmail || 'anon');
+      const prodKey = ord.productId || ord.productName || ord.orderId;
+      const groupKey = `${userKey}__${prodKey}`;
+
+      // Se ambos são duplicatas idênticas sem rastreio criadas no mesmo contexto de teste
+      if (userProductMap.has(groupKey)) {
+        const existing = userProductMap.get(groupKey);
+        const isSameDay = existing.createdAt && ord.createdAt &&
+          existing.createdAt.substring(0, 10) === ord.createdAt.substring(0, 10);
+        if (isSameDay && !ord.trackingCode) {
           continue;
         }
-        if (ord.paymentId) {
-          seenPaymentIds.add(String(ord.paymentId));
-        }
-
-        const userKey = (ord.userId && ord.userId !== 'anonymous') ? ord.userId : (ord.userEmail || 'anon');
-        const prodKey = ord.productId || ord.productName || ord.orderId;
-        const groupKey = `${userKey}__${prodKey}`;
-
-        // Se ambos são duplicatas idênticas sem rastreio criadas no mesmo contexto de teste
-        if (userProductMap.has(groupKey)) {
-          const existing = userProductMap.get(groupKey);
-          // Se o existente tem o mesmo status e foi criado no mesmo dia/sessão de teste, descarta a duplicata
-          const isSameDay = existing.createdAt && ord.createdAt &&
-            existing.createdAt.substring(0, 10) === ord.createdAt.substring(0, 10);
-          if (isSameDay && !ord.trackingCode) {
-            continue;
-          }
-        }
-
-        userProductMap.set(groupKey, ord);
-        orders.push(ord);
       }
+
+      userProductMap.set(groupKey, ord);
+      orders.push(ord);
     }
 
     // Ordenação garantida em memória pelo mais recente (createdAt decrescente)
@@ -195,17 +283,19 @@ export async function handleGetStoreOrders(req: Request, res: Response) {
 
     return res.json({ success: true, orders });
   } catch (err: any) {
-    console.error('[API Store] Error fetching orders:', err);
-    return res.status(500).json({ error: err?.message || 'Falha ao buscar pedidos' });
+    console.error('[API Admin Store] Error fetching orders:', err);
+    return res.status(500).json({ error: err?.message || 'Falha ao buscar pedidos da administração' });
   }
 }
 
 /**
  * 1. Criar Preferência de Pagamento no Mercado Pago (Checkout Pro) para Produtos da Loja
+ * com Isolamento Estrito de Usuário e Cancelamento Automático de Pedidos Órfãos Anteriores
  */
 export async function handleCreateStorePreference(req: Request, res: Response) {
   try {
-    const { productId, deliveryAddress, userId, userEmail, userName } = req.body;
+    const authUser = await getAuthenticatedUser(req);
+    const { productId, deliveryAddress, userId, userEmail, userName, quantity: requestedQty } = req.body;
 
     if (!productId) {
       return res.status(400).json({ error: 'ID do produto é obrigatório' });
@@ -214,6 +304,14 @@ export async function handleCreateStorePreference(req: Request, res: Response) {
     if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
       return res.status(500).json({ error: 'Credenciais do Mercado Pago não configuradas no servidor' });
     }
+
+    // Suporte a Múltiplas Unidades: valida quantidade mínima e formato inteiro
+    const quantity = Math.max(1, Math.floor(Number(requestedQty) || 1));
+
+    // Isolamento Estrito: Prioriza o UID do usuário autenticado via token Firebase Auth
+    const effectiveUserId = authUser?.uid || (typeof userId === 'string' && userId.trim() ? userId.trim() : 'anonymous');
+    const effectiveUserEmail = authUser?.email || userEmail || deliveryAddress?.email || '';
+    const effectiveUserName = userName || deliveryAddress?.fullName || 'Cliente Florescer';
 
     const firestore = getFirestore();
     const productRef = firestore.collection('store_products').doc(productId);
@@ -234,46 +332,76 @@ export async function handleCreateStorePreference(req: Request, res: Response) {
       return res.status(400).json({ error: 'Produto esgotado.' });
     }
 
+    if (quantity > stockNumber) {
+      return res.status(400).json({ 
+        error: `Quantidade solicitada (${quantity}) excede o estoque disponível (${stockNumber} unidades).` 
+      });
+    }
+
     const price = Number(product.price) || 0;
     if (price <= 0) {
       return res.status(400).json({ error: 'Preço do produto inválido.' });
     }
 
-    // Anti-duplicação: Verificar se o usuário já possui um pedido pendente (Aguardando Pagamento) para este produto
-    let orderId = (typeof req.body.orderId === 'string' && req.body.orderId.trim()) ? req.body.orderId.trim() : '';
+    // Cálculo dinâmico do subtotal no backend
+    const subtotal = Number((price * quantity).toFixed(2));
+    const totalPrice = subtotal;
 
-    if (!orderId && userId && userId !== 'anonymous') {
-      const recentPendingSnap = await firestore
-        .collection('store_orders')
-        .where('userId', '==', userId)
-        .where('productId', '==', productDoc.id)
-        .where('status', '==', 'Aguardando Pagamento')
-        .limit(1)
-        .get();
+    const nowIso = new Date().toISOString();
 
-      if (!recentPendingSnap.empty) {
-        orderId = recentPendingSnap.docs[0].id;
-        console.log(`[Store] Reutilizando pedido pendente existente (${orderId}) para evitar pedidos duplicados no checkout.`);
+    // Cancelamento Automático de Pedidos Órfãos Anteriores do Próprio Usuário:
+    // Ao gerar uma nova preferência de pagamento para o usuário, cancela os pedidos pendentes
+    // anteriores do próprio usuário para evitar acúmulo desnecessário de 'Aguardando Pagamento'.
+    if (effectiveUserId && effectiveUserId !== 'anonymous') {
+      try {
+        const priorPendingSnap = await firestore
+          .collection('store_orders')
+          .where('userId', '==', effectiveUserId)
+          .where('status', '==', 'Aguardando Pagamento')
+          .get();
+
+        if (!priorPendingSnap.empty) {
+          const batch = firestore.batch();
+          priorPendingSnap.forEach((docSnap) => {
+            batch.update(docSnap.ref, {
+              status: 'Cancelado',
+              cancellationReason: 'Substituído por nova tentativa de checkout',
+              updatedAt: nowIso
+            });
+          });
+          await batch.commit();
+          console.log(`[Store] ${priorPendingSnap.size} pedido(s) pendente(s) anterior(es) cancelado(s) para o usuário ${effectiveUserId}`);
+        }
+      } catch (cancelErr) {
+        console.warn('[Store] Aviso ao cancelar pedidos pendentes anteriores:', cancelErr);
       }
     }
 
-    if (!orderId) {
-      // Gerar identificador único do pedido
-      orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-    }
-    const nowIso = new Date().toISOString();
+    // Gerar identificador único e exclusivo para este novo pedido
+    const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
     const orderData = {
       orderId,
-      userId: userId || 'anonymous',
-      userEmail: userEmail || deliveryAddress?.email || '',
-      userName: userName || deliveryAddress?.fullName || 'Cliente Florescer',
+      userId: effectiveUserId,
+      userEmail: effectiveUserEmail,
+      userName: effectiveUserName,
       productId: productDoc.id,
       productName: product.title || 'Produto Loja Florescer',
       productImage: (Array.isArray(product.images) && product.images[0]) || '',
       unitPrice: price,
-      quantity: 1,
-      totalPrice: price,
+      quantity,
+      subtotal,
+      totalPrice,
+      items: [
+        {
+          productId: productDoc.id,
+          productName: product.title || 'Produto Loja Florescer',
+          productImage: (Array.isArray(product.images) && product.images[0]) || '',
+          unitPrice: price,
+          quantity,
+          subtotal
+        }
+      ],
       status: 'Aguardando Pagamento',
       trackingCode: '',
       deliveryAddress: deliveryAddress || null,
@@ -281,8 +409,8 @@ export async function handleCreateStorePreference(req: Request, res: Response) {
       updatedAt: nowIso
     };
 
-    // Salvar/Atualizar pedido no Firestore com merge para preservar dados prévios se reutilizado
-    await firestore.collection('store_orders').doc(orderId).set(orderData, { merge: true });
+    // Salvar novo pedido no Firestore com a quantidade e subtotal explícitos
+    await firestore.collection('store_orders').doc(orderId).set(orderData);
 
     const client = new MercadoPagoConfig({
       accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN
@@ -299,20 +427,21 @@ export async function handleCreateStorePreference(req: Request, res: Response) {
             title: String(product.title).substring(0, 127),
             description: String(product.description || 'Loja Florescer').substring(0, 255),
             unit_price: price,
-            quantity: 1,
+            quantity: quantity,
             currency_id: 'BRL',
             picture_url: (Array.isArray(product.images) && product.images[0]) || undefined
           }
         ],
         payer: {
-          email: userEmail || 'cliente@florescer.app',
-          name: userName || deliveryAddress?.fullName || 'Cliente Florescer'
+          email: effectiveUserEmail || 'cliente@florescer.app',
+          name: effectiveUserName
         },
         external_reference: orderId,
         metadata: {
           order_id: orderId,
           product_id: productDoc.id,
-          user_id: userId || 'anonymous',
+          user_id: effectiveUserId,
+          quantity,
           type: 'store_order'
         },
         back_urls: {
@@ -370,25 +499,28 @@ export async function handleProcessStoreOrderPayment(paymentData: any, firestore
 
         if (prodDoc.exists) {
           const currentStock = Number(prodDoc.data()?.stock) || 0;
-          const newStock = Math.max(0, currentStock - 1);
+          const qtyToDeduct = Math.max(1, Number(order.quantity) || 1);
+          const newStock = Math.max(0, currentStock - qtyToDeduct);
           transaction.update(prodRef, {
             stock: newStock,
             updatedAt: new Date().toISOString()
           });
-          console.log(`[Store Webhook] Estoque atualizado para o produto ${order.productId}: ${currentStock} -> ${newStock}`);
+          console.log(`[Store Webhook] Estoque atualizado para o produto ${order.productId}: ${currentStock} -> ${newStock} (${qtyToDeduct} unidades vendidas)`);
         }
 
         // Idempotência e Chave Única garantida: atualiza com setDoc merge: true
+        const mpPayId = String(paymentData.id);
         transaction.set(orderRef, {
           status: 'Preparando Envio',
-          paymentId: String(paymentData.id),
+          paymentId: mpPayId,
+          mpPaymentId: mpPayId,
           paymentMethod: paymentData.payment_method_id ? String(paymentData.payment_method_id).toUpperCase() : 'Mercado Pago',
           paidAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         }, { merge: true });
       });
 
-      console.log(`[Store Webhook] ✅ Pedido ${externalRef} aprovado e atualizado para 'Preparando Envio' com sucesso!`);
+      console.log(`[Store Webhook] ✅ Pedido ${externalRef} aprovado e atualizado para 'Preparando Envio' com sucesso! (Nº Operação MP: ${paymentData.id})`);
     } else {
       console.log(`[Store Webhook] ℹ️ Pedido ${externalRef} já processado anteriormente (${order.status}). Ignorando duplicação.`);
     }
@@ -412,26 +544,74 @@ export async function handleVerifyStoreOrderPayment(req: Request, res: Response)
       return res.status(400).json({ error: 'orderId ou paymentId é obrigatório' });
     }
 
-    if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
-      return res.status(500).json({ error: 'Mercado Pago access token não configurado no servidor' });
-    }
-
     const firestore = getFirestore();
     const targetOrderId = typeof orderId === 'string' ? orderId.trim() : '';
 
+    // =========================================================================
+    // PASSO 1: Consultar o pedido diretamente no Firestore (store_orders) primeiro
+    // =========================================================================
+    let localOrderDoc: FirebaseFirestore.DocumentSnapshot | null = null;
+    let localOrderData: any = null;
+
     if (targetOrderId) {
-      const orderDoc = await firestore.collection('store_orders').doc(targetOrderId).get();
-      if (orderDoc.exists) {
-        const orderData = orderDoc.data()!;
-        if (orderData.status !== 'Aguardando Pagamento') {
-          return res.json({ 
-            success: true, 
-            status: orderData.status, 
-            message: `Pedido já está com status: ${orderData.status}`,
-            order: orderData
-          });
+      localOrderDoc = await firestore.collection('store_orders').doc(targetOrderId).get();
+      if (localOrderDoc.exists) {
+        localOrderData = localOrderDoc.data();
+      } else {
+        // Tenta buscar por campo orderId caso o ID do documento seja diferente
+        const searchSnap = await firestore.collection('store_orders').where('orderId', '==', targetOrderId).limit(1).get();
+        if (!searchSnap.empty) {
+          localOrderDoc = searchSnap.docs[0];
+          localOrderData = localOrderDoc.data();
         }
       }
+    }
+
+    // Se o pedido foi localizado por paymentId ou mpPaymentId no Firestore
+    if (!localOrderData && paymentId) {
+      const cleanPayId = String(paymentId).replace(/\D/g, '');
+      if (cleanPayId) {
+        let searchPaySnap = await firestore.collection('store_orders').where('paymentId', '==', cleanPayId).limit(1).get();
+        if (searchPaySnap.empty) {
+          searchPaySnap = await firestore.collection('store_orders').where('mpPaymentId', '==', cleanPayId).limit(1).get();
+        }
+        if (!searchPaySnap.empty) {
+          localOrderDoc = searchPaySnap.docs[0];
+          localOrderData = localOrderDoc.data();
+        }
+      }
+    }
+
+    // =========================================================================
+    // PASSO 2: Se o status no Firestore já for diferente de 'pending' / 'Aguardando Pagamento'
+    // (ex: já estiver como 'Preparando Envio', 'Enviado', 'Entregue' ou 'paid'),
+    // retorne sucesso imediatamente (status 200) informando que o pagamento já foi confirmado.
+    // =========================================================================
+    if (localOrderData) {
+      const currentStatus = String(localOrderData.status || '').trim();
+      const isPending = currentStatus === '' || currentStatus === 'Aguardando Pagamento' || currentStatus.toLowerCase() === 'pending';
+
+      if (!isPending) {
+        const resolvedMpId = localOrderData.mpPaymentId || localOrderData.paymentId || String(paymentId || '');
+        console.log(`[Verify Payment] ⚡ Pedido ${targetOrderId || localOrderDoc?.id} já confirmado no Firestore (${currentStatus}). MP Operação: ${resolvedMpId}. Retornando sucesso imediato.`);
+        return res.status(200).json({
+          success: true,
+          status: currentStatus,
+          orderId: targetOrderId || localOrderDoc?.id,
+          paymentId: resolvedMpId,
+          mpPaymentId: resolvedMpId,
+          message: 'Pagamento já confirmado com sucesso! O pedido está sendo preparado para envio.',
+          order: { orderId: localOrderDoc?.id, ...localOrderData, mpPaymentId: resolvedMpId }
+        });
+      }
+    }
+
+    // =========================================================================
+    // PASSO 3: Somente se no Firestore ainda estiver pendente é que a função
+    // deve fazer a chamada na API do Mercado Pago para forçar a verificação.
+    // =========================================================================
+    if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
+      return res.status(500).json({ error: 'Mercado Pago access token não configurado no servidor' });
     }
 
     const client = new MercadoPagoConfig({
@@ -440,7 +620,7 @@ export async function handleVerifyStoreOrderPayment(req: Request, res: Response)
 
     const payment = new Payment(client);
 
-    // 1. Se recebemos o paymentId direto (ex: ID da operação no extrato do Mercado Pago / Pix / Cartão), consulta ele diretamente
+    // 3.1 Se recebemos o paymentId direto, consulta ele no Mercado Pago
     if (paymentId && String(paymentId).trim()) {
       const cleanPaymentId = String(paymentId).replace(/\D/g, '');
       if (cleanPaymentId) {
@@ -448,11 +628,12 @@ export async function handleVerifyStoreOrderPayment(req: Request, res: Response)
           const paymentData = await payment.get({ id: Number(cleanPaymentId) });
           if (paymentData && paymentData.status === 'approved') {
             await handleProcessStoreOrderPayment(paymentData, firestore);
-            return res.json({
+            return res.status(200).json({
               success: true,
               status: 'Preparando Envio',
-              orderId: targetOrderId || paymentData.external_reference,
+              orderId: targetOrderId || paymentData.external_reference || localOrderDoc?.id,
               paymentId: String(paymentData.id),
+              mpPaymentId: String(paymentData.id),
               message: 'Pagamento aprovado no Mercado Pago e confirmado com sucesso!'
             });
           }
@@ -462,7 +643,7 @@ export async function handleVerifyStoreOrderPayment(req: Request, res: Response)
       }
     }
 
-    // 2. Se temos o orderId, faz busca de pagamentos no Mercado Pago pelo external_reference
+    // 3.2 Se temos o orderId, faz busca de pagamentos no Mercado Pago pelo external_reference
     if (targetOrderId) {
       try {
         const searchResult = await payment.search({
@@ -476,11 +657,12 @@ export async function handleVerifyStoreOrderPayment(req: Request, res: Response)
         const approvedPayment = searchResult.results?.find(p => p.status === 'approved');
         if (approvedPayment) {
           await handleProcessStoreOrderPayment(approvedPayment, firestore);
-          return res.json({
+          return res.status(200).json({
             success: true,
             status: 'Preparando Envio',
             orderId: targetOrderId,
             paymentId: String(approvedPayment.id),
+            mpPaymentId: String(approvedPayment.id),
             message: 'Pagamento aprovado encontrado no Mercado Pago e sincronizado com sucesso!'
           });
         }
@@ -489,7 +671,7 @@ export async function handleVerifyStoreOrderPayment(req: Request, res: Response)
       }
     }
 
-    // 3. Estratégia Resiliente Ampla: Buscar pagamentos recentes aprovados no Mercado Pago
+    // 3.3 Estratégia Resiliente Ampla: Buscar pagamentos recentes aprovados no Mercado Pago
     // e verificar correspondência por email do usuário, valor da compra ou metadados
     try {
       const recentSearch = await payment.search({
@@ -502,15 +684,6 @@ export async function handleVerifyStoreOrderPayment(req: Request, res: Response)
 
       if (Array.isArray(recentSearch.results) && recentSearch.results.length > 0) {
         let matchedPayment = null;
-
-        // Recupera dados do pedido local para cruzamento inteligente
-        let localOrderData: any = null;
-        if (targetOrderId) {
-          const docSnap = await firestore.collection('store_orders').doc(targetOrderId).get();
-          if (docSnap.exists) {
-            localOrderData = docSnap.data();
-          }
-        }
 
         const userEmailToMatch = (req.body?.userEmail || localOrderData?.userEmail || '').trim().toLowerCase();
         const expectedPrice = localOrderData?.totalPrice ? Number(localOrderData.totalPrice) : undefined;
@@ -540,11 +713,12 @@ export async function handleVerifyStoreOrderPayment(req: Request, res: Response)
             matchedPayment.external_reference = targetOrderId;
           }
           await handleProcessStoreOrderPayment(matchedPayment, firestore);
-          return res.json({
+          return res.status(200).json({
             success: true,
             status: 'Preparando Envio',
-            orderId: targetOrderId || matchedPayment.external_reference,
+            orderId: targetOrderId || matchedPayment.external_reference || localOrderDoc?.id,
             paymentId: String(matchedPayment.id),
+            mpPaymentId: String(matchedPayment.id),
             message: 'Pagamento aprovado localizado no Mercado Pago e confirmado com sucesso!'
           });
         }
@@ -553,7 +727,7 @@ export async function handleVerifyStoreOrderPayment(req: Request, res: Response)
       console.warn('[Verify Payment] Falha na busca ampla de pagamentos recentes:', broadErr?.message || broadErr);
     }
 
-    return res.json({
+    return res.status(200).json({
       success: false,
       status: 'Aguardando Pagamento',
       message: 'Nenhum pagamento aprovado foi localizado no Mercado Pago para este pedido até o momento.'
@@ -569,7 +743,21 @@ export async function handleVerifyStoreOrderPayment(req: Request, res: Response)
  */
 export async function handleUpdateStoreOrderStatus(req: Request, res: Response) {
   try {
-    const { orderId, status, trackingCode, deliveryAddress, userName, userEmail, totalPrice, notes } = req.body;
+    const { 
+      orderId, 
+      status, 
+      trackingCode, 
+      deliveryAddress, 
+      userName, 
+      userEmail, 
+      totalPrice, 
+      notes,
+      cancellationReason,
+      disputeReason,
+      returnTrackingCode,
+      returnInstructions,
+      refundedAt
+    } = req.body;
 
     if (!orderId || !status) {
       return res.status(400).json({ error: 'orderId e status são obrigatórios' });
@@ -610,6 +798,111 @@ export async function handleUpdateStoreOrderStatus(req: Request, res: Response) 
     }
     if (notes !== undefined) {
       updatePayload.notes = notes;
+    }
+    if (cancellationReason !== undefined) {
+      updatePayload.cancellationReason = cancellationReason;
+    }
+    if (disputeReason !== undefined) {
+      updatePayload.disputeReason = disputeReason;
+    }
+    if (returnTrackingCode !== undefined) {
+      updatePayload.returnTrackingCode = String(returnTrackingCode).trim().toUpperCase();
+    }
+    if (returnInstructions !== undefined) {
+      updatePayload.returnInstructions = returnInstructions;
+    }
+    if (refundedAt !== undefined) {
+      updatePayload.refundedAt = refundedAt;
+    } else if (newStatus === 'Reembolsado' && !existingOrder.refundedAt) {
+      updatePayload.refundedAt = new Date().toISOString();
+    }
+
+    // =========================================================================
+    // INTEGRAÇÃO AUTOMÁTICA DE ESTORNO VIA API DO MERCADO PAGO (/v1/payments/{id}/refunds)
+    // Quando o status é 'Reembolsado', dispara o estorno real do valor para o cliente
+    // =========================================================================
+    let mpRefundAttempted = false;
+    let mpRefundSuccess = false;
+    let mpRefundError: string | null = null;
+    let mpRefundData: any = null;
+
+    if (newStatus === 'Reembolsado') {
+      let paymentIdToRefund = existingOrder.mpPaymentId || existingOrder.paymentId;
+
+      // Se não houver paymentId salvo no pedido, tenta localizar no Mercado Pago por external_reference
+      if (!paymentIdToRefund && process.env.MERCADOPAGO_ACCESS_TOKEN) {
+        try {
+          const client = new MercadoPagoConfig({ accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN });
+          const paymentInstance = new Payment(client);
+          const searchRes = await paymentInstance.search({
+            options: {
+              external_reference: orderId,
+              sort: 'date_created',
+              criteria: 'desc'
+            }
+          });
+          const foundPayment = searchRes.results?.find(p => p.status === 'approved' || p.status === 'refunded');
+          if (foundPayment) {
+            paymentIdToRefund = String(foundPayment.id);
+            updatePayload.mpPaymentId = paymentIdToRefund;
+          }
+        } catch (searchErr) {
+          console.warn('[Store Refund] Erro ao buscar pagamento por external_reference:', searchErr);
+        }
+      }
+
+      if (paymentIdToRefund && process.env.MERCADOPAGO_ACCESS_TOKEN) {
+        const cleanPaymentId = String(paymentIdToRefund).replace(/\D/g, '');
+        if (cleanPaymentId) {
+          mpRefundAttempted = true;
+          try {
+            console.log(`[Store Refund] 💳 Disparando estorno automático no Mercado Pago para o pagamento #${cleanPaymentId} (Pedido: ${orderId})...`);
+
+            const refundUrl = `https://api.mercadopago.com/v1/payments/${cleanPaymentId}/refunds`;
+            const refundResp = await fetch(refundUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.MERCADOPAGO_ACCESS_TOKEN}`,
+                'Content-Type': 'application/json',
+                'X-Idempotency-Key': `refund_${cleanPaymentId}_${Date.now()}`
+              }
+            });
+
+            const refundJson = await refundResp.json();
+
+            if (refundResp.ok) {
+              mpRefundSuccess = true;
+              mpRefundData = refundJson;
+              updatePayload.mpRefundId = String(refundJson.id);
+              updatePayload.refundStatus = refundJson.status || 'approved';
+              updatePayload.refundedAt = new Date().toISOString();
+              console.log(`[Store Refund] ✅ Estorno aprovado e concluído no Mercado Pago! Refund ID: ${refundJson.id}`);
+            } else {
+              const errorDesc = refundJson?.message || refundJson?.error || '';
+              // Verifica se já havia sido estornado no MP previamente
+              if (
+                errorDesc.toLowerCase().includes('already refunded') ||
+                (refundResp.status === 400 && JSON.stringify(refundJson).toLowerCase().includes('refunded'))
+              ) {
+                mpRefundSuccess = true;
+                updatePayload.refundStatus = 'already_refunded';
+                updatePayload.refundedAt = new Date().toISOString();
+                console.log(`[Store Refund] ℹ️ Pagamento #${cleanPaymentId} já estava estornado no Mercado Pago.`);
+              } else {
+                mpRefundError = errorDesc || `HTTP ${refundResp.status} ao estornar no Mercado Pago`;
+                console.warn(`[Store Refund] ⚠️ Falha na API do Mercado Pago:`, refundJson);
+              }
+            }
+          } catch (refundCallErr: any) {
+            mpRefundError = refundCallErr?.message || 'Falha de conexão com a API do Mercado Pago';
+            console.error('[Store Refund] Erro de rede/execução ao chamar refund no Mercado Pago:', refundCallErr);
+          }
+        }
+      } else if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
+        mpRefundError = 'MERCADOPAGO_ACCESS_TOKEN não configurado no servidor';
+      } else {
+        mpRefundError = 'Nenhum Nº de Pagamento do Mercado Pago encontrado para este pedido';
+      }
     }
 
     const isTransitionToShipped = (oldStatus !== 'Enviado' && newStatus === 'Enviado');
@@ -652,7 +945,16 @@ export async function handleUpdateStoreOrderStatus(req: Request, res: Response) 
       newStatus,
       trackingCode: cleanTracking,
       notified: isTransitionToShipped,
-      notifications: { pushSent, emailSent }
+      notifications: { pushSent, emailSent },
+      mpRefundAttempted,
+      mpRefundSuccess,
+      mpRefundError,
+      mpRefundId: updatePayload.mpRefundId || null,
+      message: mpRefundSuccess
+        ? 'Reembolso efetuado com sucesso no Mercado Pago! O valor foi estornado ao cliente.'
+        : (mpRefundAttempted && mpRefundError)
+          ? `Status atualizado, mas houve aviso no Mercado Pago: ${mpRefundError}`
+          : undefined
     });
   } catch (error: any) {
     console.error('[Update Order Status Error]:', error);

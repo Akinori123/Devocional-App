@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
-import { PackageCheck, Truck, ArrowRight, X, ShieldCheck } from 'lucide-react';
+import { PackageCheck, Truck, ArrowRight, X, ShieldCheck, Copy, Check } from 'lucide-react';
 import { verifyStoreOrderPaymentApi } from '../../services/storeService';
 
 interface StoreOrderSuccessModalProps {
@@ -11,6 +11,7 @@ interface StoreOrderSuccessModalProps {
 export function StoreOrderSuccessModal({ onNavigateToOrders }: StoreOrderSuccessModalProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [orderId, setOrderId] = useState<string | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
   const hasTriggeredRef = useRef(false);
 
   useEffect(() => {
@@ -126,9 +127,26 @@ export function StoreOrderSuccessModal({ onNavigateToOrders }: StoreOrderSuccess
             {/* Cartão de Detalhes do Pedido */}
             <div className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 mb-6 text-left flex flex-col gap-2.5">
               {orderId && (
-                <div className="flex items-center justify-between text-xs pb-2 border-b border-white/5">
-                  <span className="text-gray-400 font-medium">Identificador:</span>
-                  <span className="text-yellow-400 font-mono font-bold">{orderId}</span>
+                <div className="flex items-center justify-between pb-2.5 border-b border-white/10 text-xs">
+                  <span className="text-gray-300 font-medium">Nº do Pedido:</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-yellow-500/15 text-yellow-400 border border-yellow-500/40 text-xs font-black font-mono shadow-xs tracking-wide">
+                      #PED-{(orderId.replace(/\D/g, '').slice(-6) || orderId.slice(-6)).toUpperCase()}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const pedCode = (orderId.replace(/\D/g, '').slice(-6) || orderId.slice(-6)).toUpperCase();
+                        navigator.clipboard.writeText(`#PED-${pedCode}`);
+                        setIsCopied(true);
+                        setTimeout(() => setIsCopied(false), 2000);
+                      }}
+                      className="p-1 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-colors cursor-pointer"
+                      title="Copiar Nº do Pedido"
+                    >
+                      {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
               )}
               <div className="flex items-center justify-between text-xs pb-2 border-b border-white/5">

@@ -19,7 +19,16 @@ export interface StoreProduct {
   updatedAt?: string;
 }
 
-export type StoreOrderStatus = 'Aguardando Pagamento' | 'Preparando Envio' | 'Enviado' | 'Entregue';
+export type StoreOrderStatus = 
+  | 'Aguardando Pagamento' 
+  | 'Preparando Envio' 
+  | 'Enviado' 
+  | 'Entregue' 
+  | 'Cancelamento Solicitado'
+  | 'Em Análise (Inquérito)'
+  | 'Devolução Aprovada'
+  | 'Reembolsado'
+  | 'Cancelado';
 
 export interface StoreDeliveryAddress {
   fullName?: string;
@@ -33,6 +42,15 @@ export interface StoreDeliveryAddress {
   state?: string;
 }
 
+export interface StoreOrderItem {
+  productId: string;
+  productName: string;
+  productImage?: string;
+  unitPrice: number;
+  quantity: number;
+  subtotal: number;
+}
+
 export interface StoreOrder {
   orderId: string;
   userId: string;
@@ -41,13 +59,24 @@ export interface StoreOrder {
   productId: string;
   productName: string;
   productImage?: string;
+  unitPrice?: number;
+  quantity?: number;
+  subtotal?: number;
+  items?: StoreOrderItem[];
   totalPrice: number;
   status: StoreOrderStatus;
   trackingCode?: string;
   deliveryAddress?: StoreDeliveryAddress;
   paymentId?: string;
+  mpPaymentId?: string;
   deliveredAt?: string;
   autoDeliveredViaCron?: boolean;
+  cancellationReason?: string;
+  disputeReason?: string;
+  returnTrackingCode?: string;
+  returnInstructions?: string;
+  refundedAt?: string;
+  notes?: string;
   createdAt: string;
   updatedAt: string;
 }
