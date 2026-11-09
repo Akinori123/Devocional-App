@@ -38,6 +38,7 @@ import {
   BibleHighlight, 
   HighlightColor 
 } from '../../services/bibleHighlightService';
+import { fetchChapterVerses } from '../../services/bibleService';
 
 interface BibleReaderProps {
   book: BibleBook;
@@ -386,42 +387,7 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
       setSelectedVerses(new Set());
       
       try {
-        let query = `${book.id}%20${chapter}`;
-        
-        if (book.chapters === 1) {
-          const versesMap: Record<string, number> = {
-            'oba': 21,
-            'phm': 25,
-            '2jn': 13,
-            '3jn': 15,
-            'jud': 25
-          };
-          if (versesMap[book.id]) {
-            query = `${book.id}%201:1-${versesMap[book.id]}`;
-          }
-        }
-
-        const makeRequest = async (retries = 2): Promise<Response> => {
-          const response = await fetch(`https://bible-api.com/${query}?translation=almeida`);
-          if (response.status === 429 && retries > 0) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            return makeRequest(retries - 1);
-          }
-          return response;
-        };
-
-        let response = await makeRequest();
-        
-        // Fallback to default translation if almeida fails
-        if (!response.ok) {
-          response = await fetch(`https://bible-api.com/${query}`);
-        }
-
-        if (!response.ok) {
-          throw new Error('Falha ao carregar o capítulo');
-        }
-        
-        const data: BibleApiResponse = await response.json();
+        const data = await fetchChapterVerses(book, chapter);
         setVerses(data.verses);
 
         if (initialVerse) {
@@ -429,14 +395,14 @@ export function BibleReader({ book, chapter, initialVerse, onBack, onShowPremium
         }
       } catch (err) {
         setError('Não foi possível carregar o texto bíblico. Verifique sua conexão.');
-        console.error(err);
+        console.error('[BibleReader] Erro ao carregar capítulo:', err);
       } finally {
         setLoading(false);
       }
     };
 
     fetchChapter();
-  }, [book, chapter, stopAudio]);
+  }, [book, chapter, stopAudio, initialVerse]);
 
   useEffect(() => {
     if (!loading && initialVerse && verses.length > 0) {

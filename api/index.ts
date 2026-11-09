@@ -1,4 +1,6 @@
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 // @ts-ignore
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -2275,7 +2277,112 @@ app.get("/api/coins/history/:userId", async (req, res) => {
   }
 });
 
-// 4. Cron Jobs (standalone in /api/cron/* on Vercel and mounted in Express)
+// 4. Rota de consulta do texto bíblico em português (offline-first & proxy resiliente)
+app.get("/api/bible", async (req, res) => {
+  try {
+    const bookQuery = String(req.query.book || '').trim().toLowerCase();
+    const chapterNum = parseInt(String(req.query.chapter || '1'), 10);
+    const verseNum = req.query.verse ? parseInt(String(req.query.verse), 10) : undefined;
+    const endVerseNum = req.query.endVerse ? parseInt(String(req.query.endVerse), 10) : undefined;
+
+    if (!bookQuery) {
+      return res.status(400).json({ error: "Parâmetro 'book' é obrigatório." });
+    }
+
+    const bibleDir = path.join(process.cwd(), 'public', 'bible');
+    const filePath = path.join(bibleDir, `${bookQuery}.json`);
+
+    let fileContent: string | null = null;
+    if (fs.existsSync(filePath)) {
+      fileContent = fs.readFileSync(filePath, 'utf-8');
+    } else if (fs.existsSync(bibleDir)) {
+      // Tenta procurar por nome ou id correspondente
+      const files = fs.readdirSync(bibleDir);
+      for (const f of files) {
+        if (f.endsWith('.json')) {
+          const testPath = path.join(bibleDir, f);
+          const raw = fs.readFileSync(testPath, 'utf-8');
+          const parsed = JSON.parse(raw);
+          if (
+            parsed.id?.toLowerCase() === bookQuery || 
+            parsed.name?.toLowerCase() === bookQuery || 
+            parsed.abbrev?.toLowerCase() === bookQuery
+          ) {
+            fileContent = raw;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!fileContent) {
+      return res.status(404).json({ error: `Livro '${bookQuery}' não encontrado.` });
+    }
+
+    const bookData = JSON.parse(fileContent);
+
+    // Se não informou capítulo, retorna os dados do livro completo
+    if (!req.query.chapter) {
+      return res.json(bookData);
+    }
+
+    const chIndex = chapterNum - 1;
+    const rawVerses: string[] = bookData.chapters[chIndex] || [];
+    if (!rawVerses.length) {
+      return res.status(404).json({ error: `Capítulo ${chapterNum} não encontrado para o livro ${bookData.name}.` });
+    }
+
+    if (verseNum) {
+      const vStart = verseNum - 1;
+      const vEnd = endVerseNum && endVerseNum >= verseNum ? endVerseNum - 1 : vStart;
+      const selectedVerses = rawVerses.slice(vStart, vEnd + 1);
+      const verses = selectedVerses.map((t, idx) => ({
+        book_id: bookData.id,
+        book_name: bookData.name,
+        chapter: chapterNum,
+        verse: verseNum + idx,
+        text: t
+      }));
+
+      return res.json({
+        reference: `${bookData.name} ${chapterNum}:${verseNum}${endVerseNum && endVerseNum > verseNum ? `-${endVerseNum}` : ''}`,
+        book_id: bookData.id,
+        book_name: bookData.name,
+        chapter: chapterNum,
+        verses,
+        text: selectedVerses.join(' '),
+        translation_id: 'almeida',
+        translation_name: 'João Ferreira de Almeida',
+        translation_note: 'Domínio Público'
+      });
+    }
+
+    const verses = rawVerses.map((t, idx) => ({
+      book_id: bookData.id,
+      book_name: bookData.name,
+      chapter: chapterNum,
+      verse: idx + 1,
+      text: t
+    }));
+
+    return res.json({
+      reference: `${bookData.name} ${chapterNum}`,
+      book_id: bookData.id,
+      book_name: bookData.name,
+      chapter: chapterNum,
+      verses,
+      text: rawVerses.join(' '),
+      translation_id: 'almeida',
+      translation_name: 'João Ferreira de Almeida',
+      translation_note: 'Domínio Público'
+    });
+  } catch (error: any) {
+    console.error("[Bible API] Erro ao buscar texto bíblico:", error);
+    return res.status(500).json({ error: error?.message || "Falha ao processar texto bíblico" });
+  }
+});
+
+// 5. Cron Jobs (standalone in /api/cron/* on Vercel and mounted in Express)
 app.all("/api/cron/daily-push", (req, res) => dailyPushHandler(req, res));
 app.all("/api/cron/coins-reminder", (req, res) => coinsReminderHandler(req, res));
 app.all(["/api/cron/check-deliveries", "/api/store/cron/check-deliveries"], (req, res) => checkDeliveriesHandler(req, res));

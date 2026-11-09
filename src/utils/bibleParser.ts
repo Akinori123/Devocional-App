@@ -52,34 +52,34 @@ export function parseVerseReference(
   }
 }
 
+import { getVerseTextByRef } from '../services/bibleService';
+
 export async function fetchVerseText(reference: string): Promise<string | null> {
   try {
     const parsed = parseVerseReference(reference);
     if (!parsed) return null;
 
+    // 1. Try local offline-first high-speed Bible service
+    const localText = await getVerseTextByRef(parsed.bookId, parsed.chapter, parsed.verse, parsed.endVerse);
+    if (localText) {
+      return localText;
+    }
+
+    // 2. Fallback to API if ever needed
     let query = `${parsed.bookId}%20${parsed.chapter}:${parsed.verse}`;
     if (parsed.endVerse && parsed.endVerse > parsed.verse) {
       query += `-${parsed.endVerse}`;
     }
 
-    let response = await fetch(`https://bible-api.com/${query}?translation=almeida`);
-    if (!response.ok) {
-      response = await fetch(`https://bible-api.com/${query}`);
+    const res = await fetch(`/api/bible?book=${parsed.bookId}&chapter=${parsed.chapter}&verse=${parsed.verse}${parsed.endVerse ? `&endVerse=${parsed.endVerse}` : ''}`).catch(() => null);
+    if (res && res.ok) {
+      const data = await res.json();
+      if (data.text) return data.text.trim();
     }
 
-    if (!response.ok) return null;
-
-    const data = await response.json();
-    if (data.text) {
-      // Clean up whitespace and linebreaks
-      const cleaned = data.text
-        .replace(/[\r\n]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      return cleaned;
-    }
     return null;
   } catch (e) {
+    console.error('[bibleParser] Error fetching verse text:', e);
     return null;
   }
 }
