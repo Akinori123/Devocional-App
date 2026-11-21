@@ -56,7 +56,7 @@ self.addEventListener('push', (event) => {
     case 'admin_sale_alert':
       title = title || '🎉 Nova Venda Realizada!';
       body = body || 'Uma nova assinatura Florescer VIP foi confirmada.';
-      icon = icon || '/images/logo.png';
+      icon = icon || '/images/logo.png?v=3';
       targetUrl = targetUrl || '/?tab=admin_users';
       tag = tag || `sale-${Date.now()}`;
       vibrate = [400, 150, 400, 150, 500];
@@ -69,7 +69,7 @@ self.addEventListener('push', (event) => {
     case 'daily_devotional':
       title = title || 'Bom dia! ☀️';
       body = body || 'Seu devocional do dia está pronto no Florescer.';
-      icon = icon || '/images/rosa.png';
+      icon = icon || '/images/rosa.png?v=3';
       targetUrl = targetUrl || '/';
       tag = tag || 'daily-push';
       vibrate = [250, 100, 250];
@@ -81,7 +81,7 @@ self.addEventListener('push', (event) => {
     case 'coins_reminder':
       title = title || '🪙 Suas moedas estão esperando!';
       body = body || 'Tire 15 minutinhos hoje para sua leitura devocional e garanta sua recompensa.';
-      icon = icon || '/images/rosa.png';
+      icon = icon || '/images/rosa.png?v=3';
       targetUrl = targetUrl || '/?tab=home';
       tag = tag || 'coins-reminder';
       vibrate = [200, 100, 200];
@@ -93,7 +93,7 @@ self.addEventListener('push', (event) => {
     case 'subscription_dunning':
       title = title || 'Aviso de Assinatura ⏳';
       body = body || 'Seu Florescer VIP está quase vencendo. Renove agora para continuar seu progresso!';
-      icon = icon || '/images/rosa.png';
+      icon = icon || '/images/rosa.png?v=3';
       targetUrl = targetUrl || '/?tab=profile';
       tag = tag || 'subscription-dunning';
       vibrate = [350, 150, 350];
@@ -105,7 +105,7 @@ self.addEventListener('push', (event) => {
     case 'vip_activated':
       title = title || '🎉 Parabéns! Seu Plano VIP está ativo!';
       body = body || 'Seu acesso completo ao Florescer VIP foi liberado!';
-      icon = icon || '/images/rosa.png';
+      icon = icon || '/images/rosa.png?v=3';
       targetUrl = targetUrl || '/';
       tag = tag || `vip-${Date.now()}`;
       vibrate = [300, 100, 300, 100, 400];
@@ -117,7 +117,7 @@ self.addEventListener('push', (event) => {
     default:
       title = title || 'Florescer Devocional';
       body = body || 'Você tem uma nova mensagem do Florescer.';
-      icon = icon || '/images/rosa.png';
+      icon = icon || '/images/rosa.png?v=3';
       targetUrl = targetUrl || '/';
       tag = tag || 'florescer-general';
       vibrate = [200, 100, 200];

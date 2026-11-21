@@ -318,7 +318,7 @@ export function Home({ onChangeTab, onNavigateToBible }: HomeProps) {
         <div className="bg-yellow-400 dark:bg-slate-800 px-6 pt-5 pb-2.5 flex justify-between items-center transition-colors duration-200 border-b border-yellow-950/20 dark:border-slate-700/60">
           <div className="flex items-center gap-2.5">
             <div className="bg-white/40 dark:bg-slate-700/80 p-1 rounded-2xl backdrop-blur-md shadow-sm overflow-hidden flex items-center justify-center w-11 h-11 shrink-0 border border-white/40 dark:border-slate-600">
-              <img src="/images/rosa.png" alt="Florescer" className="w-full h-full object-cover" />
+              <img src="/images/rosa.png?v=3" alt="Florescer" className="w-full h-full object-cover" />
             </div>
             <span className="font-serif font-bold text-yellow-950 dark:text-yellow-400 text-xl tracking-tight">Florescer</span>
           </div>

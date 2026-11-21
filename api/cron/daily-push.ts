@@ -343,7 +343,7 @@ export default async function handler(req: Request, res: Response) {
           },
           notification: {
             tag: `daily-push-${todayBrasilia}`,
-            icon: "/images/rosa.png",
+            icon: "/images/rosa.png?v=3",
             renotify: false
           },
           fcmOptions: { 
@@ -354,7 +354,7 @@ export default async function handler(req: Request, res: Response) {
           type: "daily_push",
           title: "Bom dia! ☀️",
           body: `"${wordOfTheDay}"... Volte ao app para continuar sua leitura na Bíblia ou na sua Jornada. Não desista do seu propósito!`,
-          icon: "/images/rosa.png",
+          icon: "/images/rosa.png?v=3",
           tag: `daily-push-${todayBrasilia}`,
           url: "/"
         }
@@ -419,7 +419,7 @@ export default async function handler(req: Request, res: Response) {
               },
               notification: {
                 tag: `subscription-dunning-${todayBrasilia}`,
-                icon: "/images/rosa.png",
+                icon: "/images/rosa.png?v=3",
                 renotify: true
               },
               fcmOptions: {
@@ -430,7 +430,7 @@ export default async function handler(req: Request, res: Response) {
               type: "subscription_dunning",
               title: item.title,
               body: item.body,
-              icon: "/images/rosa.png",
+              icon: "/images/rosa.png?v=3",
               tag: `subscription-dunning-${todayBrasilia}`,
               url: "/?tab=profile"
             }

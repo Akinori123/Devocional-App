@@ -244,7 +244,7 @@ export default async function handler(req: Request, res: Response) {
         },
         notification: {
           tag: `coins-reminder-${todayBrasilia}`,
-          icon: "/images/rosa.png",
+          icon: "/images/rosa.png?v=3",
           renotify: false
         },
         fcmOptions: { 
@@ -255,7 +255,7 @@ export default async function handler(req: Request, res: Response) {
         type: "coins_reminder",
         title: "🪙 Suas moedas estão esperando!",
         body: "Tire 15 minutinhos hoje para sua leitura devocional e garanta sua recompensa.",
-        icon: "/images/rosa.png",
+        icon: "/images/rosa.png?v=3",
         tag: `coins-reminder-${todayBrasilia}`,
         url: "/?tab=home"
       }

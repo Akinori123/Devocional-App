@@ -1029,7 +1029,7 @@ export async function notifyCustomerOrderShipped(order: {
               notification: {
                 title,
                 body,
-                icon: '/images/logo.png',
+                icon: '/images/logo.png?v=3',
                 tag: `store-shipped-${order.orderId}`,
                 data: {
                   url: clickUrl,

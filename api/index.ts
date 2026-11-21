@@ -341,7 +341,7 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
           notification: {
             title: pushTitle,
             body: pushBody,
-            icon: "/images/logo.png",
+            icon: "/images/logo.png?v=3",
             tag: `admin-sale-${transactionId}`,
             renotify: true,
             requireInteraction: true,
@@ -364,7 +364,7 @@ export async function notifyAdminSaleApproved(params: AdminSaleAlertParams): Pro
           amount: String(amount),
           title: pushTitle,
           body: pushBody,
-          icon: "/images/logo.png",
+          icon: "/images/logo.png?v=3",
           url: "/?tab=admin_users"
         }
       };
@@ -791,7 +791,7 @@ async function activateUserPremium({
             notification: {
               title: welcomeTitle,
               body: welcomeBody,
-              icon: "/images/rosa.png",
+              icon: "/images/rosa.png?v=3",
               tag: `vip-activated-${targetRef.id}`,
               renotify: true,
               requireInteraction: true,
@@ -808,7 +808,7 @@ async function activateUserPremium({
             type: "vip_activated",
             title: welcomeTitle,
             body: welcomeBody,
-            icon: "/images/rosa.png",
+            icon: "/images/rosa.png?v=3",
             tag: `vip-activated-${targetRef.id}`,
             url: "/"
           }
