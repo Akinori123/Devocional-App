@@ -11,9 +11,12 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['logo.png', 'rosa.png', 'images/*'],
+        includeAssets: ['logo.png', 'images/logo.png', 'images/rosa.png'],
         workbox: {
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          cleanupOutdatedCaches: true,
+          clientsClaim: true,
+          skipWaiting: true,
         },
         manifest: {
           name: 'Florescer Devocional',
@@ -24,13 +27,13 @@ export default defineConfig(() => {
           display: 'standalone',
           icons: [
             {
-              src: '/logo.png',
+              src: '/images/logo.png?v=3',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any maskable'
             },
             {
-              src: '/logo.png',
+              src: '/images/logo.png?v=3',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any maskable'
